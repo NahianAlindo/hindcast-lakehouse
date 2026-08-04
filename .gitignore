@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv*/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets — never committed, always Key Vault / GitHub Secrets
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# dbt
+warehouse/dbt/**/target/
+warehouse/dbt/**/dbt_packages/
+warehouse/dbt/**/logs/
+
+# Data — tracked via DVC pointers, not git
+data/*
+!data/.gitkeep
+*.parquet
+*.jsonl.gz
+
+# DVC
+/.dvc/cache
+/.dvc/tmp
+
+# Airflow
+orchestration/airflow/logs/
+*.sqlite3
+
+# Docker / OS / IDE
+.DS_Store
+Thumbs.db
+*.log
+
+# Claude Code local machine settings (not shared)
+.claude/settings.local.json
