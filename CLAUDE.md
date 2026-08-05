@@ -1,78 +1,121 @@
-# sonic-lakehouse
+# hindcast-lakehouse
 
-A portfolio data engineering project: an incremental ETL/ELT platform that captures my
-personal Spotify listening history, lands it in an Azure data lake, transforms it with
-Spark, models it into a Kimball star schema in Snowflake via dbt, orchestrates it with
-Airflow on a DigitalOcean droplet, and serves it through Power BI — with Terraform IaC,
-GitHub Actions CI/CD, DVC data versioning, and Datadog/Sentry/OpenLineage observability.
+A portfolio data engineering project that **grades the weather forecast**. Every three
+hours it snapshots OpenWeatherMap's 5-day/3-hour forecast for a curated set of
+personally-meaningful locations; every thirty minutes it records what the weather
+actually did; then it joins the two across time to measure how forecast accuracy decays
+with lead time. The flagship artifact is an **accumulating snapshot fact table**
+(`fct_forecast_slot`) — one row per (location, future 3-hour slot), rewritten ~40 times
+as successive forecasts revise the prediction, closed once the actual lands.
 
-**Full build plan, phase-by-phase deliverables, star schema design, CI/CD design, and
-cost/credit budget: [`docs/PLAN.md`](docs/PLAN.md). Read it before proposing architecture
-changes — most "why" questions are already answered there, including an Executive Design
-Decisions table and per-phase justifications.**
+Stack: Airflow 3.x + PySpark 3.5/Delta on a DigitalOcean droplet, Azure (ADLS Gen2 / Key
+Vault / PostgreSQL), Snowflake (trial) → DuckDB (post-trial fallback), dbt-core, DVC,
+Terraform (+ Terraform Cloud), GitHub Actions, Datadog + Sentry + OpenLineage/Marquez,
+Power BI.
 
-**Status: pre-code, planning complete.** This repo currently has no application code.
-When implementing, follow the monorepo layout and phase order in `docs/PLAN.md` §2.6/§3
-— don't jump ahead to later phases (e.g. don't set up Snowflake before Phase 5; don't
-build dbt models before the extractor has been running long enough to have real data).
+**Full build plan — architecture, star schema, phase-by-phase deliverables, cost model:
+[`docs/PLAN.md`](docs/PLAN.md). Read it before proposing architecture changes.**
+
+## This project pivoted — know why
+
+This repo originally targeted **Spotify Web API personal listening history**. That was
+abandoned mid-build: as of Feb/March 2026 Spotify requires the Developer-app-owner
+account to hold an active Premium subscription for any `/me/*` endpoint, and even after
+activating Premium the account stayed stuck on a 403 (unresolved, possibly a platform-side
+rollout bug). Rather than keep fighting an external, undebuggable blocker, the data domain
+was switched to **OpenWeatherMap**, which the user already has a working, simple API-key
+(no OAuth) for. All Spotify-specific code, docs, and constraints have been removed — if you
+see any reference to Spotify, `bootstrap_oauth.py`, refresh tokens, or `recently-played`
+anywhere, it's stale and should be deleted, not resurrected.
+
+**Status: Phase 0 in progress.** Local tooling, git repo, and OWM API key exist. No
+ingestion code written yet for this domain — that's the immediate next step. Follow the
+monorepo layout and phase order in `docs/PLAN.md` §5 — don't jump ahead (e.g. don't sign
+up for Snowflake before Week 6; don't build dbt marts before Spark/silver exists; don't
+build the report before enough wall-clock accrual has happened for the analysis to mean
+anything — see the critical-path note below).
 
 ## Tech stack
 
-Python 3.11 · Apache Spark 3.5 (+ delta-spark 3.2) · Apache Airflow 3.x · dbt-core ·
-Snowflake · DVC · Terraform (+ Terraform Cloud remote state) · Docker Compose ·
-DigitalOcean (compute) · Azure (ADLS Gen2, Key Vault, PostgreSQL) · GitHub Actions ·
-Datadog · Sentry · OpenLineage/Marquez · Power BI.
+Python 3.11 · Apache Spark 3.5 (+ delta-spark 3.2) · Apache Airflow 3.x · dbt-core (dual
+target: `duckdb` dev, `snowflake` prod) · Snowflake · DuckDB · DVC · Terraform (+
+Terraform Cloud remote state) · Docker Compose · DigitalOcean (compute) · Azure (ADLS
+Gen2, Key Vault, PostgreSQL) · GitHub Actions · Datadog · Sentry · OpenLineage/Marquez ·
+Power BI.
 
 ## Non-negotiable constraints
 
-These are decisions from `docs/PLAN.md` that will cause real breakage or wasted spend if
-ignored — don't silently "improve" around them without flagging it to me first:
+These will cause real breakage, wasted spend, or a ruined analysis if ignored — flag it
+to me before silently working around any of these:
 
-- **Total spend must be $0. This is a hard requirement, not a preference.** I don't need
-  anything to stay live after the build is done — see `docs/PLAN.md` §8.3 "Zero-cost
-  mode" for the full guardrails. In particular: never add a payment method to Snowflake
-  (no on-demand conversion, ever — flip to the DuckDB target instead), skip the Azure
-  Sub B buffer subscription entirely, keep the GitHub repo public (unlimited free Actions
-  minutes), and watch DigitalOcean specifically — it requires a card on file to redeem
-  the student credit and *will* bill that card once the credit runs out, unlike Azure for
-  Students which hard-stops with no card. Run the full final-teardown checklist in §8.3
-  once the project is done rather than leaving anything running "just in case."
+- **Total spend must be $0. Hard requirement, not a preference.** See `docs/PLAN.md` §10.
+  Two real-money risk points remain (down from three since dropping Spotify removed the
+  Premium-trial clock entirely): (1) **DigitalOcean** requires a card on file and *will*
+  bill it once the ~$200 credit runs out — mitigate with billing alerts and disciplined
+  `terraform destroy`; (2) **Snowflake**'s 30-day trial needs no card, but converting to
+  on-demand does — never do that, flip the dbt target to `duckdb` instead (already built
+  as a first-class target from Week 5, not a last-minute scramble). Keep the GitHub repo
+  **public** (unlimited free Actions minutes).
+- **Only use OpenWeatherMap's Classic free tier** (Current Weather, 5-day/3-hour
+  Forecast, Air Pollution + history, Geocoding) — 60 calls/min, 1M calls/month, no card,
+  no expiry. **Never use One Call API 3.0/4.0** — it requires a card on file for its
+  pay-as-you-go overage, which would reintroduce exactly the real-money risk class that
+  dropping Spotify eliminated. This is a deliberate, load-bearing decision, not a
+  cost-cutting afterthought — see `docs/PLAN.md` §2 decision #2.
+- **`issued_at` (the forecast request timestamp) must always be minted and recorded by
+  the extractor, never inferred from the DAG schedule.** The entire lead-time analysis
+  is built on this field. If it's ever computed after the fact from `logical_date` instead
+  of the actual request time, every downstream lead-time bucket is silently wrong.
+- **Ingestion must go live in Week 2 and never stop.** Unlike the old Spotify design,
+  this dataset **accrues in wall-clock time and cannot be backfilled** — OpenWeatherMap
+  doesn't sell you their own past forecasts. A missed poll is a permanently missing data
+  point. `catchup=False` on all ingest DAGs is a deliberate domain decision, not laziness.
+- **Don't sign up for Snowflake until Week 6.** Build the entire star schema against the
+  `duckdb` dbt target first (Week 5) — no warehouse needed for that work, and starting
+  the 30-day trial early just burns runway for nothing.
 - **Spark runs in WSL2 or the devcontainer, never native Windows.** No `winutils.exe`
-  workarounds — that's not a skill demonstration, it's a rabbit hole.
-- **Spotify redirect URI is `http://127.0.0.1:8888/callback`** — the literal loopback IP,
-  not `localhost`. Spotify rejects `localhost` now.
-- **No audio-features / audio-analysis / recommendations endpoints.** Apps created after
-  Nov 2024 don't have access. Dimensional richness comes from genres, popularity,
-  followers, album metadata, and derived behavioural measures — not audio features.
-- **Don't sign up for Snowflake until Phase 5.** The trial is 30 days of wall-clock time
-  and does not pause. Signing up early burns runway for nothing.
-- **The Spotify extractor must ship in Phase 2 and never stop running.** `recently-played`
-  cannot be backfilled — every week of delay is permanently lost history.
-- **Secrets never go into Terraform variables, `.env` files, or git.** They live in Azure
-  Key Vault, written out-of-band by scripts. Terraform only creates the vault + access
-  policies.
-- **DAG/pipeline code ships baked into versioned Docker images, not `git-sync`'d from
-  `main`.** This is what makes "which pipeline version produced this row" answerable.
-- **A powered-off DigitalOcean droplet still bills.** The only way to stop the meter is
-  `terraform destroy`; use `task teardown` / `task standup` once those exist.
-- **No Kubernetes, no Airbyte/Fivetran, no Great Expectations** unless the reasoning in
-  `docs/PLAN.md`'s ADRs changes — these were deliberate scope calls, not oversights.
+  workarounds.
+- **Don't force SCD Type 2 onto `dim_location`.** Name/lat/lon/country/timezone are
+  static — that would be theater. The one earned SCD2 candidate is the narrow mini-dimension
+  `dim_location_regime` (banded, derived, seasonally-drifting attributes) — see
+  `docs/PLAN.md` §6.5. The flagship modeling artifact is the **accumulating snapshot**
+  fact `fct_forecast_slot`, not an SCD2.
+- **Secrets never go into Terraform variables, `.env` in git, or committed files.** They
+  live in Azure Key Vault, written out-of-band. `.env` (git-ignored) is the local-only
+  stopgap before Key Vault exists.
+- **DAG/Spark/dbt code ships baked into versioned Docker images, not `git-sync`'d from
+  `main`.** Git tag → image digest is what makes "which pipeline version produced this
+  row" answerable via the `dim_pipeline_run` audit dimension joined to every fact.
+- **A powered-off DigitalOcean droplet still bills.** Only `terraform destroy` stops the
+  meter.
+- **No Kubernetes, no Airbyte/Fivetran/Meltano, no Great Expectations** unless the
+  reasoning in `docs/PLAN.md`'s ADRs changes — deliberate scope calls, not oversights.
+  `dlt` was seriously considered for ingestion and rejected (recorded as ADR-003's named
+  runner-up) specifically because OWM's forecast response has no authoritative model-run
+  timestamp — minting `issued_at` correctly is domain logic a transport library doesn't
+  own.
 
 ## Conventions (once code exists)
 
 - Package/env management: `uv`. Task running: `Taskfile.yml` (`Task`), not Make.
 - Lint/format: `ruff` + `ruff-format` (Python), `sqlfluff` (dbt SQL), `terraform fmt` +
-  `tflint` + `checkov` (IaC), `gitleaks` (secrets scanning) — wired via `pre-commit`.
+  `tflint`/`checkov` (IaC), `detect-secrets` — wired via `pre-commit`.
 - Every non-obvious architectural choice gets a short ADR in `docs/adr/`, not just a code
-  comment — that's the artifact that actually gets read.
-- Follow the monorepo layout in `docs/PLAN.md` §2.6 (`ingestion/`, `transform/spark/`,
-  `warehouse/dbt/`, `orchestration/airflow/`, `infra/terraform/`, `bi/`, `docs/adr/`, etc.)
-  rather than inventing a different structure.
+  comment. `docs/PLAN.md` §5 Phase 10 lists the ~10 ADRs this project expects.
+- Follow the monorepo layout implied by `docs/PLAN.md` (`ingestion/hindcast_extract/`,
+  `transform/spark/`, `warehouse/dbt/`, `orchestration/airflow/`, `infra/terraform/`,
+  `docker/`, `bi/`, `docs/adr/`, `docs/architecture/`, `docs/runbooks/`) rather than
+  inventing a different structure.
 
 ## Working with me on this repo
 
 - I'm a student building this as a portfolio piece — optimize for things that are
   genuinely demoable and defensible in an interview, not just "more tools."
-- I'm on GitHub Student Developer Pack credits (Azure ×2 $100, DigitalOcean ~$200) plus a
-  30-day Snowflake trial — flag anything that risks burning credits faster than
-  `docs/PLAN.md` §8 (Cost & Credit Management) budgets for.
+- GitHub Student Developer Pack credits: Azure ×2 $100 (already activated), DigitalOcean
+  ~$200 (not yet redeemed), Datadog 2yr free (already activated/logged in). Plus a
+  30-day Snowflake trial once Week 6 starts it. Flag anything that risks burning credits
+  faster than `docs/PLAN.md` §10 budgets for.
+- **Calendar reality check**: this project's analysis quality is gated by wall-clock time
+  accrued since ingestion went live, not by hours worked. Don't suggest shortcuts that
+  would effectively restart the accrual clock (e.g. re-architecting the bronze layout
+  after Week 2) without flagging that cost explicitly.

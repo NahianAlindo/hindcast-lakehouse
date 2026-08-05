@@ -1,0 +1,9 @@
+[project]
+name = "hindcast-lakehouse"
+version = "0.1.0"
+description = "A lakehouse that grades the weather forecast"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.1",
+    "python-dotenv>=1.2.2",
+]
