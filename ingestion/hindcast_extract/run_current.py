@@ -1,0 +1,48 @@
+"""Poll current weather for every configured location.
+
+Cadence: every 30 min (docs/PLAN.md §5 Phase 2 call budget). Run by hand or a
+systemd timer/Scheduled Task for now; Airflow's `owm_current_ingest` DAG takes
+over in Phase 3.
+"""
+
+import uuid
+from datetime import datetime, timezone
+
+from client import get
+from config import load_locations
+from envelope import land_bronze
+
+ENDPOINT = "current"
+
+
+def main() -> None:
+    run_id = uuid.uuid4().hex[:12]
+    locations = load_locations()
+    landed = 0
+
+    for loc in locations:
+        requested_at = datetime.now(timezone.utc)
+        response = get(
+            "/data/2.5/weather",
+            {"lat": loc["lat"], "lon": loc["lon"], "units": "metric"},
+        )
+        payload = response.json() if response.status_code == 200 else {"error": response.text}
+        land_bronze(
+            endpoint=ENDPOINT,
+            location_id=loc["location_id"],
+            requested_at=requested_at,
+            http_status=response.status_code,
+            url_redacted=str(response.url).split("appid=")[0] + "appid=***",
+            payload=payload,
+            run_id=run_id,
+        )
+        if response.status_code == 200:
+            landed += 1
+        else:
+            print(f"[{ENDPOINT}] {loc['location_id']} -> HTTP {response.status_code}")
+
+    print(f"[{ENDPOINT}] landed {landed}/{len(locations)} locations, run_id={run_id}")
+
+
+if __name__ == "__main__":
+    main()
