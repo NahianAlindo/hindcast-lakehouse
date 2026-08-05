@@ -1,0 +1,75 @@
+name: accrual-fallback
+
+# Interim scheduler for the three OpenWeatherMap extractors, standing in for
+# Airflow until Phase 3 stands it up. Also doubles as the plan's own
+# Phase-8 "$0 continuity path" (docs/PLAN.md), just promoted earlier: it
+# keeps ingestion alive from GitHub's free runners if the future Azure VM is
+# ever down. Free-tier cron is delayed/skipped under load -- tolerated by
+# design, since `issued_at` is minted from the actual request time inside
+# the extractor, never inferred from this schedule.
+#
+# GitHub Actions runners are ephemeral -- nothing written to local disk
+# survives past the job. Until Phase 1 provisions Azure ADLS Gen2, this
+# workflow commits newly-landed bronze files straight back to the repo as
+# an interim durable store (see the .gitignore exception for data/bronze/).
+# That's a stopgap, not the intended final design -- it gets replaced by a
+# direct-to-ADLS write once Phase 1 exists.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"  # current weather
+    - cron: "0 */3 * * *"   # forecast
+    - cron: "0 * * * *"     # air quality
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: "Which extractor to run (current, forecast, air_quality, all)"
+        required: false
+        default: "all"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: accrual-fallback
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Write .env from secrets
+        run: |
+          echo "OWM_API_KEY=${{ secrets.OWM_API_KEY }}" >> .env
+          echo "OWM_BASE_URL=${{ secrets.OWM_BASE_URL }}" >> .env
+
+      - name: Run current-weather extractor
+        if: github.event.schedule == '*/30 * * * *' || github.event.inputs.endpoint == 'current' || github.event.inputs.endpoint == 'all'
+        run: uv run python ingestion/hindcast_extract/run_current.py
+
+      - name: Run forecast extractor
+        if: github.event.schedule == '0 */3 * * *' || github.event.inputs.endpoint == 'forecast' || github.event.inputs.endpoint == 'all'
+        run: uv run python ingestion/hindcast_extract/run_forecast.py
+
+      - name: Run air-quality extractor
+        if: github.event.schedule == '0 * * * *' || github.event.inputs.endpoint == 'air_quality' || github.event.inputs.endpoint == 'all'
+        run: uv run python ingestion/hindcast_extract/run_air_quality.py
+
+      - name: Commit newly-landed bronze files
+        run: |
+          rm -f .env
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/bronze/
+          git diff --cached --quiet && echo "No new bronze files" && exit 0
+          git commit -m "ingest: accrual-fallback run ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+          git pull --rebase origin master
+          git push origin master
