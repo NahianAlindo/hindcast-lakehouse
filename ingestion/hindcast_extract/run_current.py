@@ -1,8 +1,8 @@
 """Poll current weather for every configured location.
 
-Cadence: every 30 min (docs/PLAN.md §5 Phase 2 call budget). Run by hand or a
-systemd timer/Scheduled Task for now; Airflow's `owm_current_ingest` DAG takes
-over in Phase 3.
+Cadence: every 30 min (docs/PLAN.md §5 Phase 2 call budget). Run by hand,
+GitHub Actions accrual-fallback, or a systemd timer for now; Airflow's
+`owm_current_ingest` DAG takes over in Phase 3.
 """
 
 import uuid
@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from client import get
 from config import load_locations
 from envelope import land_bronze
+from models import validate
 
 ENDPOINT = "current"
 
@@ -27,6 +28,13 @@ def main() -> None:
             {"lat": loc["lat"], "lon": loc["lon"], "units": "metric"},
         )
         payload = response.json() if response.status_code == 200 else {"error": response.text}
+
+        validation_error = None
+        if response.status_code == 200:
+            is_valid, validation_error = validate(ENDPOINT, payload)
+            if not is_valid:
+                print(f"[{ENDPOINT}] {loc['location_id']} -> validation failed (landing anyway): {validation_error}")
+
         land_bronze(
             endpoint=ENDPOINT,
             location_id=loc["location_id"],
@@ -35,6 +43,7 @@ def main() -> None:
             url_redacted=str(response.url).split("appid=")[0] + "appid=***",
             payload=payload,
             run_id=run_id,
+            validation_error=validation_error,
         )
         if response.status_code == 200:
             landed += 1

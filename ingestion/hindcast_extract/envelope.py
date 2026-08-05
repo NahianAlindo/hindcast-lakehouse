@@ -1,18 +1,34 @@
-"""Bronze landing: immutable, lossless raw envelopes. Never transform here.
+"""Bronze landing: immutable, lossless raw envelopes, written to ADLS Gen2.
 
-Layout: data/bronze/endpoint={e}/dt={YYYY-MM-DD}/hh={HH}/{location_id}_{run_id}.json.gz
-`requested_at` on the envelope IS `issued_at` for forecast rows — minted here,
+Layout: bronze/endpoint={e}/dt={YYYY-MM-DD}/hh={HH}/{location_id}_{run_id}.json.gz
+`requested_at` on the envelope IS `issued_at` for forecast rows -- minted here,
 at request time, never inferred later from a DAG schedule (docs/PLAN.md's
 single most load-bearing extractor rule).
+
+Was local disk / git-committed via GitHub Actions as an interim stopgap before
+Phase 1 provisioned ADLS. That stopgap is retired now that ADLS exists.
 """
 
 import gzip
 import hashlib
 import json
 from datetime import datetime
-from pathlib import Path
+from io import BytesIO
 
-from config import EXTRACTOR_VERSION, REPO_ROOT
+from azure.storage.blob import BlobServiceClient
+
+from config import AZURE_STORAGE_CONNECTION_STRING, BLOB_CONTAINER_BRONZE, EXTRACTOR_VERSION
+
+_blob_service_client: BlobServiceClient | None = None
+
+
+def _client() -> BlobServiceClient:
+    global _blob_service_client
+    if _blob_service_client is None:
+        _blob_service_client = BlobServiceClient.from_connection_string(
+            AZURE_STORAGE_CONNECTION_STRING
+        )
+    return _blob_service_client
 
 
 def land_bronze(
@@ -24,7 +40,9 @@ def land_bronze(
     url_redacted: str,
     payload: dict,
     run_id: str,
-) -> Path:
+    is_new_model_run: bool | None = None,
+    validation_error: str | None = None,
+) -> str:
     payload_bytes = json.dumps(payload).encode()
     payload_sha256 = hashlib.sha256(payload_bytes).hexdigest()
 
@@ -37,20 +55,24 @@ def land_bronze(
         "url_redacted": url_redacted,
         "payload_sha256": payload_sha256,
         "extractor_version": EXTRACTOR_VERSION,
-        "image_digest": None,  # no Docker image yet — arrives Phase 1/8
+        "image_digest": None,  # no Docker image yet -- arrives Phase 8
+        "is_new_model_run": is_new_model_run,
+        "validation_error": validation_error,
         "payload": payload,
     }
 
-    out_dir = (
-        REPO_ROOT
-        / "data"
-        / "bronze"
-        / f"endpoint={endpoint}"
-        / f"dt={requested_at:%Y-%m-%d}"
-        / f"hh={requested_at:%H}"
+    blob_path = (
+        f"endpoint={endpoint}"
+        f"/dt={requested_at:%Y-%m-%d}"
+        f"/hh={requested_at:%H}"
+        f"/{location_id}_{run_id}.json.gz"
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{location_id}_{run_id}.json.gz"
-    with gzip.open(out_path, "wt", encoding="utf-8") as f:
-        json.dump(envelope, f)
-    return out_path
+
+    buf = BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
+        gz.write(json.dumps(envelope).encode())
+
+    container = _client().get_container_client(BLOB_CONTAINER_BRONZE)
+    container.upload_blob(name=blob_path, data=buf.getvalue(), overwrite=True)
+
+    return blob_path

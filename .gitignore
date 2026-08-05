@@ -36,13 +36,6 @@ data/*
 *.parquet
 *.jsonl.gz
 
-# EXCEPTION, interim only: data/bronze/ IS committed directly until Phase 1
-# provisions Azure ADLS Gen2. GitHub Actions runners (accrual-fallback.yml)
-# are ephemeral, so git is the only durable store available before then.
-# Remove this exception once ingestion writes to ADLS instead.
-!data/bronze/
-!data/bronze/**
-
 # DVC
 /.dvc/cache
 /.dvc/tmp

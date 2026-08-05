@@ -37,15 +37,19 @@ change, it was forced by an external partner exiting the program; `education.git
 still lists the DO offer, but it's stale and not actually redeemable. If you see references
 to a "droplet" anywhere, it means an Azure VM now, or the doc is stale and should be fixed.
 
-**Status: Phase 0 and Phase 1 complete, ingestion live.** Local tooling, git repo
-(public, pushed via SSH to `github.com/NahianAlindo/hindcast-lakehouse`), OWM API key
-(verified, Classic free tier, no card), and `ingestion/config/locations.yml` (10 curated
-locations) all exist. `ingestion/hindcast_extract/` (current/forecast/air_quality
-runners) is written and verified working. **Accrual is live** via
-`.github/workflows/accrual-fallback.yml` — GitHub Actions cron on all three cadences,
-committing landed bronze straight back to the repo as an interim durable store (a
-`.gitignore` exception carves out `data/bronze/` for this — it's a stopgap, replaced once
-ingestion is rewritten to write directly to ADLS in a later phase).
+**Status: Phase 0, Phase 1, and Phase 2 complete, ingestion live.** Local tooling, git
+repo (public, pushed via SSH to `github.com/NahianAlindo/hindcast-lakehouse`), OWM API
+key (verified, Classic free tier, no card), and `ingestion/config/locations.yml` (10
+curated locations) all exist. `ingestion/hindcast_extract/` is fully built: Pydantic
+response-validation models (`models.py`), forecast model-run deduplication tracking
+(`is_new_model_run`, state kept in ADLS at `bronze/_state/`), and a one-off Air Pollution
+historical backfill script (`run_air_quality_backfill.py`, free back to 2020-11-27) on
+top of the three live pollers. **Accrual is live and writes directly to ADLS** (bronze
+container) via `.github/workflows/accrual-fallback.yml` — GitHub Actions cron on all
+three cadences, authenticating with a storage account connection string (not Managed
+Identity — this runner isn't an Azure resource, and this tenant blocks Service
+Principal/OIDC creation for students). The earlier "commit bronze to git" stopgap is
+retired; the ~70 files it had accrued were migrated into ADLS first, nothing lost.
 
 **Phase 1 (IaC foundation) is applied and verified, zero drift in both Terraform
 workspaces:**
@@ -64,8 +68,7 @@ workspaces:**
   not the mount point — `initdb` refuses a non-empty directory, and a fresh ext4 disk
   always has `lost+found`).
 
-Next up: Phase 3 (Airflow deployment on this VM) — Phase 2 (ingestion) is already live via
-the GitHub Actions accrual-fallback path above. Don't jump ahead further than Phase 3
+Next up: Phase 3 (Airflow deployment on this VM). Don't jump ahead further than Phase 3
 (e.g. don't sign up for Snowflake before Week 6; don't build dbt marts before Spark/silver
 exists; don't build the report before enough wall-clock accrual has happened for the
 analysis to mean anything — see the critical-path note in `docs/PLAN.md` §12).

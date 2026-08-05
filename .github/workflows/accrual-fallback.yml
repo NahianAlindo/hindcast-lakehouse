@@ -3,17 +3,19 @@ name: accrual-fallback
 # Interim scheduler for the three OpenWeatherMap extractors, standing in for
 # Airflow until Phase 3 stands it up. Also doubles as the plan's own
 # Phase-8 "$0 continuity path" (docs/PLAN.md), just promoted earlier: it
-# keeps ingestion alive from GitHub's free runners if the future Azure VM is
-# ever down. Free-tier cron is delayed/skipped under load -- tolerated by
+# keeps ingestion alive from GitHub's free runners if the Azure VM is ever
+# down. Free-tier cron is delayed/skipped under load -- tolerated by
 # design, since `issued_at` is minted from the actual request time inside
 # the extractor, never inferred from this schedule.
 #
-# GitHub Actions runners are ephemeral -- nothing written to local disk
-# survives past the job. Until Phase 1 provisions Azure ADLS Gen2, this
-# workflow commits newly-landed bronze files straight back to the repo as
-# an interim durable store (see the .gitignore exception for data/bronze/).
-# That's a stopgap, not the intended final design -- it gets replaced by a
-# direct-to-ADLS write once Phase 1 exists.
+# Writes straight to Azure ADLS Gen2 (bronze container) via a storage
+# account connection string -- not a Managed Identity, since this runner
+# isn't an Azure resource and this tenant blocks Service Principal/OIDC
+# federation for students (see CLAUDE.md). A connection string is the
+# pragmatic, fully-working alternative for storage specifically.
+# GitHub Actions runners are otherwise ephemeral and used to require
+# committing bronze back to the repo as an interim durable store before
+# ADLS existed -- that stopgap is retired now that it does.
 
 on:
   schedule:
@@ -26,9 +28,6 @@ on:
         description: "Which extractor to run (current, forecast, air_quality, all)"
         required: false
         default: "all"
-
-permissions:
-  contents: write
 
 concurrency:
   group: accrual-fallback
@@ -50,6 +49,7 @@ jobs:
         run: |
           echo "OWM_API_KEY=${{ secrets.OWM_API_KEY }}" >> .env
           echo "OWM_BASE_URL=${{ secrets.OWM_BASE_URL }}" >> .env
+          echo "AZURE_STORAGE_CONNECTION_STRING=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" >> .env
 
       - name: Run current-weather extractor
         if: github.event.schedule == '*/30 * * * *' || github.event.inputs.endpoint == 'current' || github.event.inputs.endpoint == 'all'
@@ -62,14 +62,3 @@ jobs:
       - name: Run air-quality extractor
         if: github.event.schedule == '0 * * * *' || github.event.inputs.endpoint == 'air_quality' || github.event.inputs.endpoint == 'all'
         run: uv run python ingestion/hindcast_extract/run_air_quality.py
-
-      - name: Commit newly-landed bronze files
-        run: |
-          rm -f .env
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/bronze/
-          git diff --cached --quiet && echo "No new bronze files" && exit 0
-          git commit -m "ingest: accrual-fallback run ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
-          git pull --rebase origin master
-          git push origin master

@@ -1,9 +1,8 @@
 """Poll current air pollution for every configured location.
 
-Cadence: hourly. Run by hand or a timer for now; Airflow's
-`owm_air_quality_ingest` DAG takes over in Phase 3. The one-off historical
-backfill (`/data/2.5/air_pollution/history`, free back to 2020-11-27) is a
-separate script, added when Phase 2's cold-start backfill is built.
+Cadence: hourly. Run by hand, GitHub Actions accrual-fallback, or a systemd
+timer for now; Airflow's `owm_air_quality_ingest` DAG takes over in Phase 3.
+The one-off historical backfill lives in run_air_quality_backfill.py.
 """
 
 import uuid
@@ -12,6 +11,7 @@ from datetime import datetime, timezone
 from client import get
 from config import load_locations
 from envelope import land_bronze
+from models import validate
 
 ENDPOINT = "air_quality"
 
@@ -28,6 +28,13 @@ def main() -> None:
             {"lat": loc["lat"], "lon": loc["lon"]},
         )
         payload = response.json() if response.status_code == 200 else {"error": response.text}
+
+        validation_error = None
+        if response.status_code == 200:
+            is_valid, validation_error = validate(ENDPOINT, payload)
+            if not is_valid:
+                print(f"[{ENDPOINT}] {loc['location_id']} -> validation failed (landing anyway): {validation_error}")
+
         land_bronze(
             endpoint=ENDPOINT,
             location_id=loc["location_id"],
@@ -36,6 +43,7 @@ def main() -> None:
             url_redacted=str(response.url).split("appid=")[0] + "appid=***",
             payload=payload,
             run_id=run_id,
+            validation_error=validation_error,
         )
         if response.status_code == 200:
             landed += 1

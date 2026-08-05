@@ -18,7 +18,10 @@ load_dotenv(REPO_ROOT / ".env")
 
 OWM_API_KEY = os.environ["OWM_API_KEY"]
 OWM_BASE_URL = os.environ.get("OWM_BASE_URL", "https://api.openweathermap.org")
-EXTRACTOR_VERSION = "0.1.0-dev"
+EXTRACTOR_VERSION = "0.2.0-dev"
+
+AZURE_STORAGE_CONNECTION_STRING = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
+BLOB_CONTAINER_BRONZE = "bronze"
 
 
 def load_locations() -> list[dict]:
