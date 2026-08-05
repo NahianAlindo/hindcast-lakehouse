@@ -1,0 +1,126 @@
+# Curated location set for Hindcast (docs/PLAN.md §4.2).
+#
+# Criteria this set satisfies: ≥2 hemispheres, ≥1 maritime + ≥1 continental +
+# ≥1 mountain/lake-effect location, ≥3 timezones.
+#
+# `oshawa_ca` is confirmed (Ontario Tech University, where this project's author
+# studies — matches the .env test call already run). Every other entry was chosen
+# by Claude for its analytical/climate properties (forecastability contrast,
+# hemisphere/timezone coverage), not because it's known to be personally
+# meaningful to you — edit `personal_relevance`/`personal_note`, coordinates, or
+# swap entries entirely (e.g. add your actual hometown or family locations) to
+# make this genuinely yours before Phase 2 ingestion goes live. `location_id` and
+# `active_from` matter downstream (dim_location natural key, SCD tracking) — if
+# you rename or replace an entry after ingestion starts, treat it as a new
+# location_id rather than editing one in place.
+
+locations:
+  - location_id: oshawa_ca
+    name: Oshawa
+    country: CA
+    lat: 43.9
+    lon: -78.85
+    iana_tz: America/Toronto
+    personal_relevance: study
+    personal_note: "Where I study — Ontario Tech University."
+    climate_class: Dfb  # humid continental — Lake Ontario lake-effect signal
+    active_from: "2026-08-05"
+
+  - location_id: toronto_ca
+    name: Toronto
+    country: CA
+    lat: 43.65
+    lon: -79.38
+    iana_tz: America/Toronto
+    personal_relevance: travel
+    personal_note: "Nearby major city — same timezone as Oshawa, tests whether forecast skill differs at short distance."
+    climate_class: Dfb
+    active_from: "2026-08-05"
+
+  - location_id: vancouver_ca
+    name: Vancouver
+    country: CA
+    lat: 49.28
+    lon: -123.12
+    iana_tz: America/Vancouver
+    personal_relevance: travel
+    personal_note: "Maritime + coastal-mountain climate; second Canadian timezone."
+    climate_class: Cfb  # oceanic
+    active_from: "2026-08-05"
+
+  - location_id: denver_us
+    name: Denver
+    country: US
+    lat: 39.74
+    lon: -104.99
+    iana_tz: America/Denver
+    personal_relevance: travel
+    personal_note: "High-altitude continental/mountain climate; Mountain Time coverage."
+    climate_class: BSk  # cold semi-arid
+    active_from: "2026-08-05"
+
+  - location_id: new_york_us
+    name: New York
+    country: US
+    lat: 40.71
+    lon: -74.01
+    iana_tz: America/New_York
+    personal_relevance: travel
+    personal_note: "Major maritime-influenced city; Eastern Time, different UTC offset from Toronto despite proximity."
+    climate_class: Cfa  # humid subtropical
+    active_from: "2026-08-05"
+
+  - location_id: london_uk
+    name: London
+    country: GB
+    lat: 51.51
+    lon: -0.13
+    iana_tz: Europe/London
+    personal_relevance: travel
+    personal_note: "Maritime climate with a reputation for volatile, hard-to-forecast weather — good low-forecastability-tier candidate."
+    climate_class: Cfb
+    active_from: "2026-08-05"
+
+  - location_id: reykjavik_is
+    name: Reykjavik
+    country: IS
+    lat: 64.15
+    lon: -21.94
+    iana_tz: Atlantic/Reykjavik
+    personal_relevance: travel
+    personal_note: "Subpolar maritime; high latitude and storm-track exposure should make this the hardest location to forecast in the set."
+    climate_class: Cfc  # subpolar oceanic
+    active_from: "2026-08-05"
+
+  - location_id: dubai_ae
+    name: Dubai
+    country: AE
+    lat: 25.2
+    lon: 55.27
+    iana_tz: Asia/Dubai
+    personal_relevance: travel
+    personal_note: "Hot desert climate — expected to be a high-forecastability-tier contrast case against Reykjavik/London."
+    climate_class: BWh  # hot desert
+    active_from: "2026-08-05"
+
+  - location_id: singapore_sg
+    name: Singapore
+    country: SG
+    lat: 1.35
+    lon: 103.82
+    iana_tz: Asia/Singapore
+    personal_relevance: travel
+    personal_note: "Near-equatorial, minimal seasonal temperature swing — exercises dim_date season logic at its weakest signal."
+    climate_class: Af  # tropical rainforest
+    active_from: "2026-08-05"
+
+  - location_id: sydney_au
+    name: Sydney
+    country: AU
+    lat: -33.87
+    lon: 151.21
+    iana_tz: Australia/Sydney
+    personal_relevance: travel
+    personal_note: "Southern Hemisphere anchor — seasons run opposite to every other location in this set."
+    climate_class: Cfa
+    active_from: "2026-08-05"

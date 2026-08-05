@@ -51,8 +51,8 @@ The third row is the differentiator worth leading with in interviews: **the data
 | # | Decision | Call | Rationale |
 |---|---|---|---|
 | 1 | **Source tier** | **OWM Classic free tier only.** Current Weather, 5day/3h Forecast, Air Pollution (incl. history), Geocoding. | 60 calls/min, 1M calls/month, **no card on file, no paid escalation path, no expiry.** Planned usage is ~29k calls/month = **2.9% of cap**. |
-| 2 | **One Call 3.0/4.0** | **Deliberately excluded.** | It requires a card to activate and is PAYG at $0.0015/call beyond 1,000/day — structurally identical to the DigitalOcean and Snowflake real-money risk points, and the **only one of the three that is avoidable by design.** Excluding it removes a whole risk class. Additionally: One Call's advantage is 48h *hourly* resolution, but Hindcast's analytical hook is **long-lead decay**, for which Classic's **120h horizon beats One Call's 48h**. The constraint and the design agree — this is not a compromise. |
-| 3 | **Ingestion tooling** | **Hand-rolled extractor** (~250 LOC: `httpx` + `tenacity` + `pydantic`). | The Spotify justification (OAuth/PKCE, cursor quirks) is **gone** — OWM auth is a query param. Re-evaluated fresh: **`dlt` is a genuinely reasonable alternative here and is recorded as the named runner-up in ADR-003.** Hand-rolled still wins for one decisive reason: **OWM's forecast response contains no authoritative model-run timestamp.** `issued_at` — the field the entire lead-time analysis is built on — must be *minted by the extractor* and written into an immutable request envelope alongside a payload hash. That is domain logic a transport library doesn't own, and once you're writing it, dlt buys you ~40 lines of HTTP. Secondary: zero added dependency surface on a droplet already running Airflow + Spark. |
+| 2 | **One Call 3.0/4.0** | **Deliberately excluded.** | It requires a card to activate and is PAYG at $0.0015/call beyond 1,000/day — structurally identical to the DigitalOcean-droplet and Snowflake real-money risk points *this plan originally had* (DigitalOcean has since been dropped entirely — see §10), and remains **avoidable by design.** Excluding it removes a whole risk class. Additionally: One Call's advantage is 48h *hourly* resolution, but Hindcast's analytical hook is **long-lead decay**, for which Classic's **120h horizon beats One Call's 48h**. The constraint and the design agree — this is not a compromise. |
+| 3 | **Ingestion tooling** | **Hand-rolled extractor** (~250 LOC: `httpx` + `tenacity` + `pydantic`). | The Spotify justification (OAuth/PKCE, cursor quirks) is **gone** — OWM auth is a query param. Re-evaluated fresh: **`dlt` is a genuinely reasonable alternative here and is recorded as the named runner-up in ADR-003.** Hand-rolled still wins for one decisive reason: **OWM's forecast response contains no authoritative model-run timestamp.** `issued_at` — the field the entire lead-time analysis is built on — must be *minted by the extractor* and written into an immutable request envelope alongside a payload hash. That is domain logic a transport library doesn't own, and once you're writing it, dlt buys you ~40 lines of HTTP. Secondary: zero added dependency surface on a VM already running Airflow + Spark. |
 | 4 | **Flagship modeling artifact** | **Accumulating snapshot fact** (`fct_forecast_slot`), not SCD Type 2. | The domain's natural shape is "a row whose truth fills in over time," which is textbook accumulating snapshot. See #5. |
 | 5 | **SCD Type 2** | **Rejected on `dim_location` (base). Accepted on one narrow mini-dimension, `dim_location_regime`.** | Location name/lat/lon/country **do not change** — SCD2 there would be theater, the same way Great Expectations and Airbyte were refused in the original plan. But there *is* one defensible candidate, structurally identical to the old `dim_artist` banded-popularity justification: a **derived, banded `forecastability_tier`** (High/Medium/Low, from trailing-90-day skill) plus `thermal_regime` band. These genuinely drift seasonally and answer a real as-of question — *"when we issued this forecast, what did we believe this location's predictability was?"* Modeled as an **SCD2 mini-dimension / outrigger**, not by SCD2-ing the base dimension, to avoid row explosion on static attributes. Explicitly secondary to #4. |
 | 6 | **DST / timezone offset** | Store **IANA tz name in `dim_location` (Type 1)**; compute local time in transform. Do **not** SCD2 the UTC offset. | OWM returns a `timezone` offset that flips with DST. That is a *time-varying fact attribute*, not a dimension change. SCD2-ing it would produce two rows per city per year that mean nothing. Trap correctly avoided. |
@@ -63,7 +63,7 @@ The third row is the differentiator worth leading with in interviews: **the data
 | 11 | **Headline metric** | **Skill score vs. persistence baseline**, not raw MAE. | `Skill = 1 − MSE_forecast / MSE_persistence`. An accuracy number without a baseline is not analysis. Brier score for POP, CSI for rain/no-rain. |
 | 12 | **Cold-start backfill** | **OWM Air Pollution *history* endpoint** (free, back to 2020-11-27). | Gives a genuine multi-year historical fact table on day one so the warehouse is not empty while forecast data accrues, and enables a non-generic secondary analysis (wind/inversion vs. PM2.5). |
 | 13 | **Open-Meteo** | **Optional Phase 10 enrichment. Not in the core path.** | Fully free, no key, and — critically — it archives *past forecast runs* as well as ERA5 actuals, which would allow backfilling real predicted-vs-actual pairs years deep. Genuinely tempting, deliberately deferred: the user asked for OWM and has the key, and Hindcast's "the pipeline creates the dataset" story is *stronger* without a shortcut. Documented as the named future extension. |
-| 14 | **$0 accrual fallback** | **GitHub Actions scheduled workflow** as a droplet-down ingestion path. | Public repo = unlimited free minutes. If the droplet must be destroyed mid-build, a 3-hourly cron keeps writing raw envelopes to ADLS. Caveat handled by design: free-tier GH cron is delayed/skipped under load, which would corrupt lead-time buckets *if the schedule were assumed* — it isn't, because `issued_at` is always recorded, never inferred (see #3). |
+| 14 | **$0 accrual fallback** | **GitHub Actions scheduled workflow** as a VM-down ingestion path. | Public repo = unlimited free minutes. If the VM must be destroyed mid-build, a 3-hourly cron keeps writing raw envelopes to ADLS. Caveat handled by design: free-tier GH cron is delayed/skipped under load, which would corrupt lead-time buckets *if the schedule were assumed* — it isn't, because `issued_at` is always recorded, never inferred (see #3). |
 | 15 | **Trial-clock risk** | **Spotify Premium clock is eliminated entirely.** No replacement clock introduced. | OWM Classic never expires and never asks for a card. Net risk points drop from three to two. See §10. |
 | 16 | Kubernetes / Airbyte / Fivetran / Meltano / Great Expectations | **Still excluded.** | Unchanged reasoning. dbt tests + `dbt-expectations` + `elementary-data`, with Pandera only at the Spark bronze→silver boundary. |
 
@@ -86,7 +86,7 @@ OpenWeatherMap Classic API
                            payload_sha256, extractor_version, run_id}
                           partitioned dt=YYYY-MM-DD/hh=HH/endpoint=…
                 │
-                ▼   PySpark 3.5 + delta-spark 3.2  (WSL2 locally / Docker on droplet)
+                ▼   PySpark 3.5 + delta-spark 3.2  (WSL2 locally / Docker on Azure VM)
    ADLS Gen2  ▸ silver/   Delta tables: explode → flatten → Pandera validate →
                           dedup on (location, endpoint, source_dt) → MERGE
                 │
@@ -101,18 +101,20 @@ OpenWeatherMap Classic API
 
 | Service | Location | Purpose |
 |---|---|---|
-| Airflow 3.x scheduler/webserver/worker | Docker Compose on **DigitalOcean Droplet** | Orchestration |
-| Airflow metadata DB | **Azure PostgreSQL Flexible Server** (B1ms) | Keeps the droplet disposable/stateless |
-| Spark 3.5 driver + workers | Docker Compose on same droplet (local[*] / standalone) | bronze→silver |
-| Bronze / silver / exports / DVC remote | **Azure ADLS Gen2** | Data lake + DVC storage |
-| Secrets (OWM key, Snowflake, Azure SP, Datadog) | **Azure Key Vault** | No secrets on droplet disk |
+| Airflow 3.x scheduler/webserver/worker | Docker Compose on an **Azure VM (Sub B)** | Orchestration |
+| Airflow metadata DB | **Azure PostgreSQL Flexible Server** (B1ms, Sub A) | Keeps the VM disposable/stateless |
+| Spark 3.5 driver + workers | Docker Compose on same VM (local[*] / standalone) | bronze→silver |
+| Bronze / silver / exports / DVC remote | **Azure ADLS Gen2** (Sub A) | Data lake + DVC storage |
+| Secrets (OWM key, Snowflake, Azure SP, Datadog) | **Azure Key Vault** (Sub A) | No secrets on VM disk |
 | Warehouse | **Snowflake** trial → **DuckDB** post-trial | Marts |
 | Infra state | **Terraform Cloud** workspace | Remote state, configured Phase 1 |
 | Metrics/logs/APM | **Datadog** (2yr free, GH Student Pack) | Observability |
 | Exceptions | **Sentry** | Extractor + DAG errors |
-| Lineage | **OpenLineage → Marquez** (container on droplet) | Column-level lineage graph |
+| Lineage | **OpenLineage → Marquez** (container on VM) | Column-level lineage graph |
 | CI/CD + fallback ingestion cron | **GitHub Actions** (public repo) | Build/test/deploy/accrue |
 | BI | **Power BI Desktop** (Windows native) | Report |
+
+**Why two Azure subscriptions instead of one:** Sub A holds the data plane (ADLS, Key Vault, PostgreSQL); **Sub B holds the compute VM**, replacing the DigitalOcean droplet the original version of this plan used (DigitalOcean wound down its GitHub Student Pack participation — all credits, including already-redeemed ones, expired 2026-08-01). Splitting compute from data across two independently-capped $100 credits isn't just tidy — it means a runaway compute cost and a storage cost can't drain the same pool, and **each subscription hard-stops on its own at $100 with no card on file**, so this swap actually removes a real-money risk point rather than just relocating DigitalOcean's (see §10).
 
 ---
 
@@ -153,14 +155,13 @@ Resolved once via `/geo/1.0/direct`, output committed as `ingestion/config/locat
 
 | Item | Action | Clock started? |
 |---|---|---|
-| GitHub Student Developer Pack | Confirm active; note DO $200 credit code — **do not redeem yet** | No |
-| Azure for Students | Confirm both $100 credits active, note expiry dates | Already running |
+| GitHub Student Developer Pack | Confirm active. **DigitalOcean's $200 credit is no longer usable — partnership wound down, all credit (including already-redeemed) expired 2026-08-01.** Don't rely on the pack listing page; it's not been updated to remove it. | No |
+| Azure for Students | Confirm **both** $100 credits active (Sub A = data plane, Sub B = compute VM), note expiry dates | Already running |
 | Datadog | Already activated/logged in — capture API + APP keys | No |
 | Sentry | Create free-tier org + 2 projects (`hindcast-ingest`, `hindcast-airflow`) | No |
 | Terraform Cloud | Account exists; **org/workspace creation deferred to Phase 1** | No |
 | Snowflake | **Do nothing.** Sign-up is Week 6. | No |
 | Power BI | Check `@ontariotechu.net` tenant at `app.powerbi.com` for a free **Pro** license via M365 A3/A5 education benefit before assuming a 60-day trial is needed | No |
-| DigitalOcean | Account only; **no droplet, no credit redemption** | No |
 
 ### 4.4 Local environment
 
@@ -182,16 +183,17 @@ Already installed (WSL2 Ubuntu, Docker Desktop, Python 3.11 via `uv`, `terraform
 **Goal:** every piece of infrastructure exists in Terraform and nothing was created by clicking.
 
 **Deliverables**
-- Terraform Cloud org `hindcast` + workspaces `hindcast-azure`, `hindcast-do`; VCS-driven plans on PR, manual apply.
-- `infra/terraform/azure/`: resource group, **ADLS Gen2** storage account with containers `bronze`, `silver`, `exports`, `dvc`; hierarchical namespace on; lifecycle rule → Cool at 30d. **Key Vault** with RBAC auth, secrets seeded from local `.env` via `az` (values never in state files — use `ignore_changes` on secret values). **PostgreSQL Flexible Server** B1ms, 32 GB, firewall allowing only the droplet IP + your home IP.
-- `infra/terraform/digitalocean/`: droplet `s-2vcpu-4gb` ($24/mo, Ubuntu 22.04), reserved IP, cloud-firewall (22 from home IP only; 8080/3000 closed — tunnel via SSH), SSH key, `cloud-init` installing Docker + Compose and pulling the Compose bundle.
-- Two service principals (Azure): one for the droplet (ADLS RW + KV get), one for GitHub Actions (narrower).
-- Datadog Agent + Sentry DSN wired via cloud-init env.
+- Terraform Cloud org `hindcast` + workspaces `hindcast-azure-data` (Sub A) and `hindcast-azure-compute` (Sub B); VCS-driven plans on PR, manual apply.
+- `infra/terraform/azure_data/` (Sub A provider alias): resource group, **ADLS Gen2** storage account with containers `bronze`, `silver`, `exports`, `dvc`; hierarchical namespace on; lifecycle rule → Cool at 30d. **Key Vault** with RBAC auth, secrets seeded from local `.env` via `az` (values never in state files — use `ignore_changes` on secret values). **PostgreSQL Flexible Server** B1ms, 32 GB, firewall allowing only the VM's IP + your home IP.
+- `infra/terraform/azure_compute/` (Sub B provider alias): `azurerm_linux_virtual_machine`, size **`Standard_B2s`** (2 vCPU / 4 GB, burstable — the closest match to the `s-2vcpu-4gb` droplet this replaces, ~$30/mo pay-as-you-go against the Sub B credit), Ubuntu 22.04, a Network Security Group (22 from home IP only; 8080/3000 closed — tunnel via SSH, same as the original plan), a static public IP, an SSH key resource, and `cloud-init` (via `custom_data`) installing Docker + Compose and pulling the Compose bundle — mechanically the same role the droplet's cloud-init played.
+- Two service principals (Azure): one for the VM (ADLS RW + KV get, cross-subscription), one for GitHub Actions (narrower).
+- Datadog Agent + Sentry DSN wired via the VM's cloud-init env.
 
 **Key decisions**
-- Droplet is **cattle**: no state on it. Airflow metadata → Azure Postgres; DAG code → baked images; data → ADLS. A `terraform destroy` + `apply` must restore a working system in <15 min, and that is an explicitly tested runbook, not an aspiration.
-- **Redeem the DO $200 credit now**, then immediately set a DigitalOcean billing alert at $10 and $25. Card-on-file risk is live from this moment forward.
-- Azure budget alerts at 25%/50%/80% of each $100 credit.
+- The VM is **cattle**: no state on it. Airflow metadata → Azure Postgres (Sub A); DAG code → baked images; data → ADLS (Sub A). A `terraform destroy` + `apply` on the Sub B workspace must restore a working system in <15 min, and that is an explicitly tested runbook, not an aspiration.
+- **Azure VM instead of a DigitalOcean droplet**: DigitalOcean wound down its GitHub Student Pack participation and all credit (including already-redeemed) expired 2026-08-01 — it's simply not available anymore, not merely "not yet redeemed." Azure Sub B was already sitting there as active, card-free credit, so it absorbs the compute role instead.
+- **One important Azure-specific gotcha the DO droplet didn't have**: an Azure VM that's *stopped* but not *deallocated* still bills for compute. `terraform destroy` avoids this by removing the resource outright, but if you ever stop the VM by hand (e.g. from the Azure Portal) for a quick pause, use **"Stop (deallocate)"**, never a plain OS shutdown — plain shutdown leaves the compute meter running.
+- Azure budget alerts at 25%/50%/80% of **each** $100 credit, tracked separately per subscription since Sub A and Sub B now draw down independently.
 
 **Demo line:** *"The entire platform is destroyable and rebuildable in under fifteen minutes from a single `terraform apply`, with state in Terraform Cloud and secrets never touching a disk I control."*
 
@@ -217,7 +219,7 @@ Already installed (WSL2 Ubuntu, Docker Desktop, Python 3.11 via `uv`, `terraform
 - **Forecast model-run deduplication:** because OWM refreshes the forecast on its own cadence, two polls 3h apart can return the *same underlying model run*. Compare `payload_sha256` against the previous poll for that location and set `is_new_model_run`. This is recorded, not filtered — knowing the forecast *didn't* update is itself a finding, and it means "lead time" and "number of distinct model runs" are different axes.
 - **Air Pollution history backfill:** one-off run pulling hourly AQI from 2020-11-27 to present for all locations. ~12 locations × ~1,900 days × 24h ≈ 550k rows, fetched in ~1,000 calls. **Gives a non-empty warehouse from day one.**
 - Bronze layout: `bronze/endpoint={e}/dt={YYYY-MM-DD}/hh={HH}/{location_id}_{run_id}.json.gz`
-- Interim scheduling: `systemd` timers on the droplet (Airflow arrives Week 3). **Do not wait for Airflow to start collecting.**
+- Interim scheduling: `systemd` timers on the VM (Airflow arrives Week 3). **Do not wait for Airflow to start collecting.**
 
 **Call budget**
 
@@ -390,9 +392,9 @@ One dashboard, four rows: **Ingest health / Slot lifecycle / Transform / Warehou
 | `ci.yml` | PR | ruff, mypy, pytest (extractor unit tests w/ recorded OWM fixtures), sqlfluff, `dbt build --target duckdb` against a committed sample, Pandera schema tests |
 | `terraform.yml` | PR touching `infra/` | `fmt`, `validate`, TFC speculative plan → PR comment; apply on merge, manual gate |
 | `build-images.yml` | tag `v*.*.*` | Buildx → GHCR: `hindcast-airflow`, `hindcast-spark`, `hindcast-extract`; **capture image digests**, write to `deploy/manifest.json`, attach SBOM + provenance |
-| `deploy.yml` | manual, takes a git tag | SSH to droplet, pull **by digest**, `docker compose up -d`, smoke test, roll back to previous digest on failure |
+| `deploy.yml` | manual, takes a git tag | SSH to the Azure VM, pull **by digest**, `docker compose up -d`, smoke test, roll back to previous digest on failure |
 | `dbt-docs.yml` | main | `dbt docs generate` → GitHub Pages |
-| **`accrual-fallback.yml`** | `cron: 0 */3 * * *` | **The $0 continuity path** — runs the extractor from GHCR against ADLS if the droplet is down. Public repo = free minutes. |
+| **`accrual-fallback.yml`** | `cron: 0 */3 * * *` | **The $0 continuity path** — runs the extractor from GHCR against ADLS if the VM is down. Public repo = free minutes. |
 | `cost-watch.yml` | daily | `az consumption` + `doctl balance` → fail the job (and thus email) if either credit drops below 20% |
 
 **Non-negotiable:** DAG and Spark code are **baked into images**, never git-synced from `main`. `deploy.yml` accepts a git tag and resolves it to an immutable digest. This is the code layer of §7.
@@ -421,15 +423,15 @@ One dashboard, four rows: **Ingest health / Slot lifecycle / Transform / Warehou
 ### Phase 10 — Docs, Polish, Teardown *(Week 10, ~10h)*
 
 - `README.md`: the pitch, the decay-curve chart, the lineage graph screenshot, the architecture diagram, a 90-second Loom, and a **"Known Limitations"** section (below).
-- **ADRs** (`docs/adr/`): 001 monorepo · 002 DO over managed Airflow · **003 hand-rolled extractor over dlt (with dlt named as runner-up)** · **004 Classic tier over One Call 3.0** · **005 accumulating snapshot over SCD2 for the forecast domain** · 006 Spark honestly over-provisioned · 007 Snowflake→DuckDB fallback · 008 DVC over LakeFS · 009 30-min current-weather cadence · 010 ±90 min actual-matching tolerance.
-- **Runbooks**: droplet rebuild · Snowflake→DuckDB failover · backfill a bronze gap · restore a data version · rotate the OWM key.
+- **ADRs** (`docs/adr/`): 001 monorepo · **002 self-hosted Azure VM over managed Airflow (and over the original DigitalOcean droplet — DO's Student Pack credit expired 2026-08-01 mid-build)** · **003 hand-rolled extractor over dlt (with dlt named as runner-up)** · **004 Classic tier over One Call 3.0** · **005 accumulating snapshot over SCD2 for the forecast domain** · 006 Spark honestly over-provisioned · 007 Snowflake→DuckDB fallback · 008 DVC over LakeFS · 009 30-min current-weather cadence · 010 ±90 min actual-matching tolerance.
+- **Runbooks**: Azure VM rebuild · Snowflake→DuckDB failover · backfill a bronze gap · restore a data version · rotate the OWM key.
 - **Known Limitations** (write this section; it's a credibility multiplier):
   1. OWM's "current weather" is itself a model-blended nowcast, not a raw station observation — so this measures *forecast vs. OWM's own later best estimate*, which is a slightly optimistic proxy for truth. Named honestly, not buried.
   2. `issued_at` is the extractor's request time, not OWM's model-run time; `is_new_model_run` partially compensates.
   3. A ~10-week window cannot support seasonal conclusions; per-season breakdowns are structurally present but statistically thin, and the report labels them as such.
   4. Ingestion gaps are recorded, never interpolated.
 - **Optional enrichment, documented not built:** Open-Meteo's free, key-less **historical forecast archive** would allow backfilling genuine predicted-vs-actual pairs years deep and would turn limitation (3) into a non-issue. Named as the single highest-value next step.
-- **Teardown**: `terraform destroy` DO droplet + Azure Postgres; keep ADLS (pennies) or export marts to a GitHub Release; flip dbt to DuckDB; enter zero-cost mode (§10).
+- **Teardown**: `terraform destroy` the Azure Sub B VM workspace + Azure Postgres; keep ADLS (pennies) or export marts to a GitHub Release; flip dbt to DuckDB; enter zero-cost mode (§10).
 
 ---
 
@@ -588,7 +590,7 @@ WHERE  f.valid_ts_utc::date = '2026-08-15'
 GROUP  BY 1,2,3,4;
 ```
 
-**Why baked images, not git-sync:** `git pull` on the droplet means the running pipeline's identity is "whatever `main` was at the moment the scheduler happened to reload," which is unreproducible and untestable. A digest is immutable, signed, SBOM'd, and rollback-able in one command. The reproducibility claim is only as strong as its weakest layer, and git-sync would be the weak one.
+**Why baked images, not git-sync:** `git pull` on the VM means the running pipeline's identity is "whatever `main` was at the moment the scheduler happened to reload," which is unreproducible and untestable. A digest is immutable, signed, SBOM'd, and rollback-able in one command. The reproducibility claim is only as strong as its weakest layer, and git-sync would be the weak one.
 
 ---
 
@@ -597,7 +599,7 @@ GROUP  BY 1,2,3,4;
 Covered in Phase 8 (§5). Unchanged from the original plan in every respect except:
 
 - Extractor tests now use **recorded OWM JSON fixtures** (four endpoints, including a 401, a 429, and a malformed-payload case) instead of mocked OAuth token exchanges. Simpler, faster, no secrets in CI.
-- One workflow is genuinely new: **`accrual-fallback.yml`**, the 3-hourly cron that keeps ingestion alive from GitHub's runners if the droplet is destroyed. It exists because Hindcast's dataset is time-accrued and a gap cannot be backfilled. Free-tier cron jitter is tolerated by design, because `issued_at` is always recorded and never assumed.
+- One workflow is genuinely new: **`accrual-fallback.yml`**, the 3-hourly cron that keeps ingestion alive from GitHub's runners if the VM is destroyed. It exists because Hindcast's dataset is time-accrued and a gap cannot be backfilled. Free-tier cron jitter is tolerated by design, because `issued_at` is always recorded and never assumed.
 - `cost-watch.yml` runs daily and **fails the build** when either credit pool drops below 20%, which turns a silent billing risk into a GitHub notification.
 
 ---
@@ -619,11 +621,11 @@ Covered in Phase 7 (§5). Design unchanged; metric names adapted to the domain. 
 | Service | Funding | Est. consumption over 10 weeks | Real-money exposure |
 |---|---|---|---|
 | **OpenWeatherMap** | **Free Classic tier** | ~29k calls/mo of 1,000,000 (**2.9%**) | **None — no card, no expiry, no PAYG path** |
-| DigitalOcean droplet `s-2vcpu-4gb` | $200 GH Student Pack credit | ~$60 (10 weeks × $24/mo prorated) | ⚠️ **Card on file; bills after credit** |
-| Azure ADLS Gen2 | $100 Azure for Students #1 | <$2 (~1–2 GB, Cool tier) | Credit-capped |
-| Azure PostgreSQL B1ms | $100 Azure for Students #1 | ~$35 (10 weeks) | Credit-capped |
-| Azure Key Vault | " | <$0.50 | Credit-capped |
-| Azure Blob (DVC remote) | $100 Azure for Students #2 | <$3 | Credit-capped |
+| Azure VM `Standard_B2s` (compute) | $100 Azure for Students **Sub B** | ~$75 (10 weeks × ~$30/mo) | **None — hard-stops at $100, no card on file** |
+| Azure ADLS Gen2 | $100 Azure for Students **Sub A** | <$2 (~1–2 GB, Cool tier) | **None — same hard-stop** |
+| Azure PostgreSQL B1ms | Sub A | ~$35 (10 weeks) | **None** |
+| Azure Key Vault | Sub A | <$0.50 | **None** |
+| Azure Blob (DVC remote) | Sub A (shares the $100 with ADLS/PG/KV above) | <$3 | **None** |
 | **Snowflake** | 30-day trial, $400 credits, **no card** | ~$25 of credits (XS, `AUTO_SUSPEND=60`) | ⚠️ **Only if you convert to on-demand — never do** |
 | Terraform Cloud | Free tier (≤5 users) | $0 | None |
 | GitHub Actions | Free, unlimited (public repo) | $0 | None |
@@ -632,33 +634,25 @@ Covered in Phase 7 (§5). Design unchanged; metric names adapted to the domain. 
 | Power BI | University A3/A5 Pro (check first) or 60-day trial | $0 | None |
 | **Total out-of-pocket** | | | **$0** |
 
-### The three risk points — now two
+*(Sub A's four line items all draw from the same $100 credit and sum to well under it; Sub B's VM is the only thing drawing on the second $100.)*
 
-| # | Risk | Status | Mitigation |
+### Down to one real risk point
+
+This plan has been through two revisions, and each one removed a risk class rather than relocating it:
+
+| # | Risk | Status | Why |
 |---|---|---|---|
-| 1 | **DigitalOcean** requires a card to redeem student credit and bills it once credit is exhausted | ⚠️ **Live** | Billing alerts at $10/$25; `cost-watch.yml` fails daily below 20% credit; `terraform destroy` at Phase 10; **never resize the droplet upward** |
-| 2 | **Snowflake** trial needs no card, but converting to on-demand does | ⚠️ **Live, but fully avoidable** | Never enter payment details. Sign up Week 6 so the trial ends ~Week 10 with margin. **dbt's `duckdb` target is built in Week 5 and is the pre-tested exit ramp**, not an emergency scramble |
-| 3 | ~~**Spotify Premium** trial clock~~ | ✅ **ELIMINATED** | See below |
+| ~~1~~ | ~~**Spotify Premium** trial clock~~ | ✅ **ELIMINATED** (pivot to OpenWeatherMap) | `/me/*` endpoints required active Premium — a 30-day clock coupled to the *data source itself*, the worst place for one, since unlike compute you can't rebuild lost history. |
+| ~~2~~ | ~~**DigitalOcean** card-on-file, bills once credit exhausted~~ | ✅ **ELIMINATED** (DO's Student Pack partnership ended, forced a swap to Azure Sub B) | Azure for Students has **no payment method attached at all** — it hard-stops at $100 rather than billing. The forced substitution turned out to remove risk, not just relocate it. |
+| **3** | **Snowflake** trial needs no card, but converting to on-demand does | ⚠️ **Live, but fully avoidable** | Never enter payment details. Sign up Week 6 so the trial ends ~Week 10 with margin. **dbt's `duckdb` target is built in Week 5 and is the pre-tested exit ramp**, not an emergency scramble. |
 
-### Risk point 3 is gone — and no replacement clock was introduced
-
-The Spotify-era plan carried a genuinely nasty constraint: `/me/*` endpoints required the developer account to hold **active Premium**, so a 30-day Premium trial had to be started, tracked, and burned inside a build window — and cancelled before it billed. That created a hard, irreversible countdown coupled to the *data source itself*, which is the worst place for a clock, because unlike compute you cannot rebuild lost history.
-
-**OpenWeatherMap's Classic free tier introduces no equivalent clock:**
-
-- **No card is required** to hold or use a Classic key.
-- **The tier does not expire** — it is not a trial, it is the permanent free plan.
-- **There is no paid escalation path attached to it.** Exceeding 60 calls/min returns HTTP 429; exceeding 1M calls/month suspends the key. Neither generates a bill. **The failure mode is throttling, not charging** — which is exactly the failure mode you want under a $0 constraint.
-- Planned usage is **2.9% of the monthly cap**, monitored in Datadog with an alert at 25%.
-- **One Call 3.0/4.0 — the one OWM product that *would* reintroduce a card-on-file PAYG clock — is deliberately excluded** (§2, decision #2). This is the whole reason for that decision.
-
-Net effect: risk points drop from three to two, and the one that disappeared was the only one that could destroy *data* rather than merely cost money. The remaining two are both infrastructure-side, both bounded by credit, both alertable, and both resolved by `terraform destroy`.
+**Every remaining Azure resource — VM included — fails by throttling or hard-stopping, never by billing**, the same property that made OpenWeatherMap's Classic tier safe in the first place. The only genuine "don't do this" left in the entire budget is: don't add a payment method to Snowflake. Everything else can be misconfigured, over-provisioned, or forgotten about and it will simply stop working, not generate a bill.
 
 ### Zero-cost mode (post-build steady state)
 
 The user does not need anything to stay live after the build. On completion:
 
-1. `terraform destroy` on the DigitalOcean workspace (droplet + reserved IP) and on Azure PostgreSQL. Airflow is gone; nothing was stored on it.
+1. `terraform destroy` on the `hindcast-azure-compute` workspace (VM + static IP) and on Azure PostgreSQL (in `hindcast-azure-data`). Airflow is gone; nothing was stored on it.
 2. Export all marts to Parquet → `data/exports/`, `dvc push`, tag `data-final`. Also attach a compressed Parquet bundle to a **GitHub Release** so the repo is self-contained even if ADLS is deleted.
 3. Flip dbt to `--target duckdb`, pointed at the committed Parquet. `dbt build` still runs green, locally, in CI, forever, for $0. **The full star schema remains reproducible by anyone who clones the repo** — which is exactly what a reviewer will try.
 4. Repoint the `.pbix` at the DuckDB/Parquet extract; commit both the `.pbix` and full-page PNG exports so the report is viewable without Power BI installed.
@@ -671,7 +665,7 @@ The user does not need anything to stay live after the build. On completion:
 
 ### The 30-second version
 
-> "I built a lakehouse that grades the weather forecast. Every three hours it snapshots the 5-day forecast for a dozen cities I have a personal connection to, every thirty minutes it records what actually happened, and it joins the two to measure how forecast accuracy decays with lead time. The centrepiece is an accumulating snapshot fact table — one row per city per future 3-hour slot, rewritten about forty times as the forecast is revised, then closed when the actual lands. Airflow and Spark on a DigitalOcean droplet, Delta on ADLS, dbt into Snowflake, Terraform for everything, Datadog and OpenLineage on top, and it cost me nothing."
+> "I built a lakehouse that grades the weather forecast. Every three hours it snapshots the 5-day forecast for a dozen cities I have a personal connection to, every thirty minutes it records what actually happened, and it joins the two to measure how forecast accuracy decays with lead time. The centrepiece is an accumulating snapshot fact table — one row per city per future 3-hour slot, rewritten about forty times as the forecast is revised, then closed when the actual lands. Airflow and Spark on an Azure VM, Delta on ADLS, dbt into Snowflake, Terraform for everything, Datadog and OpenLineage on top, and it cost me nothing."
 
 ### The five things to lead with
 
@@ -683,7 +677,7 @@ The user does not need anything to stay live after the build. On completion:
 
 ### Résumé bullets
 
-- Built an end-to-end lakehouse (Airflow 3 · PySpark 3.5 · Delta Lake · dbt · Snowflake) on Terraform-managed DigitalOcean + Azure infrastructure, ingesting **~29k API calls/month across 4 endpoints and 12 locations** at **$0 total cost** under student credits and permanently-free tiers.
+- Built an end-to-end lakehouse (Airflow 3 · PySpark 3.5 · Delta Lake · dbt · Snowflake) on Terraform-managed infrastructure split across **two independent Azure subscriptions** (compute isolated from data plane for blast-radius control), ingesting **~29k API calls/month across 4 endpoints and 12 locations** at **$0 total cost** under student credits and permanently-free tiers — including absorbing a mid-build infrastructure-provider change (DigitalOcean's Student Pack partnership ending) without losing accrued data or restarting the timeline.
 - Designed a Kimball star schema whose flagship is an **accumulating snapshot fact table** tracking forecast→revision→actual lifecycle at ~40 revisions per row, implemented as an incremental dbt `MERGE` with an Airflow-driven slot-closure job and a 5-state lifecycle machine.
 - Engineered a **±90-minute temporal matching join** between 3-hour-boundary forecast slots and irregularly-timed observations, with the match offset persisted and dbt-tested rather than hidden — plus conservative lead-time milestone selection that never reports a forecast as more informed than its label.
 - Implemented **four-layer reproducibility** (Terraform state · immutable Docker image digests · DVC data versions · Snowflake Time Travel) unified by an audit dimension joined to every fact, making "which code and which data produced this row" a single SQL query.
@@ -702,7 +696,7 @@ Have the §10 "Known Limitations" list ready and volunteer it. The OWM-nowcast-a
 | Wk | Phase | Focus | Exit criterion | Clock / risk |
 |---|---|---|---|---|
 | **0** | 0 | Accounts, OWM key verified, `locations.yml`, repo public | 4 endpoints return 200; **zero cloud resources** | None started |
-| **1** | 1 | Terraform Cloud, Azure (ADLS/KV/Postgres), DO droplet | `destroy` + `apply` rebuilds in <15 min | ⚠️ **DO card on file from here** |
+| **1** | 1 | Terraform Cloud, Azure Sub A (ADLS/KV/Postgres), Azure Sub B (VM) | `destroy` + `apply` rebuilds in <15 min | No card-risk clock starts here — both subscriptions hard-stop |
 | **2** | 2 | **Extractor live** + AQ history backfill | 🔴 **INGESTION RUNNING CONTINUOUSLY — hardest deadline in the plan** | Accrual clock **starts** |
 | **3** | 3 | Airflow 3.x, 9 DAGs, assets, idempotency | systemd timers retired; DAGs green 48h | — |
 | **4** | 4 | Spark bronze→silver, Delta, Pandera, benchmark | Silver populated; benchmark doc published | First 120h-lead slots now closeable |
@@ -723,7 +717,7 @@ Phase 1 (infra) ──▶ Phase 2 (INGEST LIVE, end Wk2) ──▶ [8 weeks of w
 
 **The one scheduling insight that governs this plan:** Phases 3–8 do not depend on how much data exists — they depend on data *arriving*. Phase 9 depends on data *volume*, which is a function of calendar time, not effort. **Every day ingestion is delayed is a day permanently subtracted from the analysis, and it cannot be bought back with extra hours later.** This is the structural difference from the Spotify design, where `recently-played` delivered history on day one.
 
-Therefore: if Week 1 slips, **cut scope from Phase 1, not from Phase 2.** A hand-provisioned droplet running the extractor on a systemd timer, Terraform-ified in Week 3, is strictly better than a beautifully IaC'd platform that starts collecting a week late.
+Therefore: if Week 1 slips, **cut scope from Phase 1, not from Phase 2.** A hand-provisioned Azure VM running the extractor on a systemd timer, Terraform-ified in Week 3, is strictly better than a beautifully IaC'd platform that starts collecting a week late.
 
 ### Scope-cut order, if weeks are lost
 
