@@ -102,7 +102,7 @@ OpenWeatherMap Classic API
 | Service | Location | Purpose |
 |---|---|---|
 | Airflow 3.x scheduler/webserver/worker | Docker Compose on an **Azure VM** | Orchestration |
-| Airflow metadata DB | **Azure PostgreSQL Flexible Server** (B1ms) | Keeps the VM disposable/stateless |
+| Airflow metadata DB | **Postgres container on the VM**, data on a small persistent Azure Managed Disk | Keeps VM *compute* disposable even though Postgres itself isn't a managed service — see the ADR note in Phase 1 |
 | Spark 3.5 driver + workers | Docker Compose on same VM (local[*] / standalone) | bronze→silver |
 | Bronze / silver / exports / DVC remote | **Azure ADLS Gen2** | Data lake + DVC storage |
 | Secrets (OWM key, Snowflake, Azure SP, Datadog) | **Azure Key Vault** | No secrets on VM disk |
@@ -184,13 +184,14 @@ Already installed (WSL2 Ubuntu, Docker Desktop, Python 3.11 via `uv`, `terraform
 
 **Deliverables**
 - Terraform Cloud org `hindcast` + workspaces `hindcast-azure-data` and `hindcast-azure-compute` — **same Azure subscription**, kept in separate Terraform workspaces/states purely for blast-radius hygiene (you can destroy compute without touching the data-plane state, and vice versa); VCS-driven plans on PR, manual apply.
-- `infra/terraform/azure_data/`: resource group, **ADLS Gen2** storage account with containers `bronze`, `silver`, `exports`, `dvc`; hierarchical namespace on; lifecycle rule → Cool at 30d. **Key Vault** with RBAC auth, secrets seeded from local `.env` via `az` (values never in state files — use `ignore_changes` on secret values). **PostgreSQL Flexible Server** B1ms, 32 GB, firewall allowing only the VM's IP + your home IP.
-- `infra/terraform/azure_compute/`: `azurerm_linux_virtual_machine`, size **`Standard_B2s`** (2 vCPU / 4 GB, burstable — the closest match to the `s-2vcpu-4gb` droplet this replaces, ~$30/mo pay-as-you-go), Ubuntu 22.04, a Network Security Group (22 from home IP only; 8080/3000 closed — tunnel via SSH, same as the original plan), a static public IP, an SSH key resource, and `cloud-init` (via `custom_data`) installing Docker + Compose and pulling the Compose bundle — mechanically the same role the droplet's cloud-init played.
+- `infra/terraform/azure_data/`: resource group, **ADLS Gen2** storage account with containers `bronze`, `silver`, `exports`, `dvc`; hierarchical namespace on; lifecycle rule → Cool at 30d. **Key Vault** with RBAC auth, secrets seeded from local `.env` via `az` (values never in state files — use `ignore_changes` on secret values).
+- `infra/terraform/azure_compute/`: `azurerm_linux_virtual_machine`, size **`Standard_B2s`** (2 vCPU / 4 GB, burstable — the closest match to the `s-2vcpu-4gb` droplet this replaces, ~$30/mo pay-as-you-go), Ubuntu 22.04, a Network Security Group (22 from home IP only; 8080/3000 closed — tunnel via SSH, same as the original plan), a static public IP, an SSH key resource, and `cloud-init` (via `custom_data`) installing Docker + Compose and pulling the Compose bundle — mechanically the same role the droplet's cloud-init played. **A small persistent Azure Managed Disk** (~8 GB Standard_LRS, pennies/month) attached to the VM and mounted for Postgres's data directory — see the ADR note below for why.
 - Two service principals (Azure): one for the VM (ADLS RW + KV get), one for GitHub Actions (narrower). Same subscription now, so no cross-subscription role assignment needed — just least-privilege scoping.
 - Datadog Agent + Sentry DSN wired via the VM's cloud-init env.
 
 **Key decisions**
-- The VM is **cattle**: no state on it. Airflow metadata → Azure Postgres; DAG code → baked images; data → ADLS. A `terraform destroy` + `apply` on the compute workspace must restore a working system in <15 min, and that is an explicitly tested runbook, not an aspiration.
+- **Postgres runs as a Docker container on the VM, not Azure PostgreSQL Flexible Server.** The managed service was the original plan, but it failed twice during actual provisioning: first with a 403 in `eastus` ("provisioning restricted in this region"), then with `CapacityNotAvailable` in `centralus` after a genuine 17-minute provisioning attempt. Rather than keep fighting Azure capacity/region availability outside our control, Postgres moved onto the VM itself. **Trade-off, stated plainly:** the VM is no longer *fully* stateless — but attaching Postgres's data directory to a small persistent Managed Disk (not the VM's OS disk) means `terraform destroy`/`apply` on the compute workspace still only tears down *compute*; the disk, and Airflow's run history on it, survives and reattaches to the new VM. This is a cheaper, simpler, and (as it turned out) more reliable way to get "disposable compute, persistent state" than the managed service was giving us.
+- The VM itself is still **cattle**: no state on its OS disk. DAG code → baked images; data → ADLS; only Postgres's data directory persists, and it does so on a disk, not on the VM. A `terraform destroy` + `apply` on the compute workspace must restore a working system (Postgres included) in <15 min, and that is an explicitly tested runbook, not an aspiration.
 - **Azure VM instead of a DigitalOcean droplet**: DigitalOcean wound down its GitHub Student Pack participation and all credit (including already-redeemed) expired 2026-08-01 — it's simply not available anymore, not merely "not yet redeemed." An Azure VM absorbs the compute role instead.
 - **One important Azure-specific gotcha the DO droplet didn't have**: an Azure VM that's *stopped* but not *deallocated* still bills for compute. `terraform destroy` avoids this by removing the resource outright, but if you ever stop the VM by hand (e.g. from the Azure Portal) for a quick pause, use **"Stop (deallocate)"**, never a plain OS shutdown — plain shutdown leaves the compute meter running.
 - **Single-subscription decision (user's call, not a technical requirement):** a second $100 Azure for Students credit exists but is deliberately out of scope for this project — one identity, one credit, simpler to manage. The real consequence is budget, not architecture: VM and data plane now share one $100 pool instead of two, so **VM teardown between work sessions moves from "good practice" to load-bearing** (§10) — comfortably supported by the fact that continuous ingestion doesn't depend on the VM being up at all (the GitHub Actions `accrual-fallback.yml` workflow, already running, covers that independently of whether the VM exists).
@@ -244,7 +245,7 @@ Already installed (WSL2 Ubuntu, Docker Desktop, Python 3.11 via `uv`, `terraform
 **Goal:** Airflow 3.x owns the schedule; systemd timers retired.
 
 **Deliverables**
-- Airflow 3.x via Docker Compose (`api-server`, `scheduler`, `dag-processor`, `triggerer`, `worker`), `LocalExecutor`, metadata on Azure Postgres.
+- Airflow 3.x via Docker Compose (`api-server`, `scheduler`, `dag-processor`, `triggerer`, `worker`), `LocalExecutor`, metadata on the Postgres container backed by the persistent Managed Disk.
 - DAGs:
 
 | DAG | Schedule | Purpose |
@@ -432,7 +433,7 @@ One dashboard, four rows: **Ingest health / Slot lifecycle / Transform / Warehou
   3. A ~10-week window cannot support seasonal conclusions; per-season breakdowns are structurally present but statistically thin, and the report labels them as such.
   4. Ingestion gaps are recorded, never interpolated.
 - **Optional enrichment, documented not built:** Open-Meteo's free, key-less **historical forecast archive** would allow backfilling genuine predicted-vs-actual pairs years deep and would turn limitation (3) into a non-issue. Named as the single highest-value next step.
-- **Teardown**: `terraform destroy` the compute workspace (VM) + Azure Postgres; keep ADLS (pennies) or export marts to a GitHub Release; flip dbt to DuckDB; enter zero-cost mode (§10).
+- **Teardown**: `terraform destroy` the compute workspace (VM + Managed Disk); keep ADLS (pennies) or export marts to a GitHub Release; flip dbt to DuckDB; enter zero-cost mode (§10).
 
 ---
 
@@ -624,8 +625,8 @@ Covered in Phase 7 (§5). Design unchanged; metric names adapted to the domain. 
 | Service | Funding | Est. consumption, always-on for 10 weeks | Est. consumption, session-scoped (see below) | Real-money exposure |
 |---|---|---|---|---|
 | **OpenWeatherMap** | **Free Classic tier** | ~29k calls/mo of 1,000,000 (**2.9%**) | same | **None — no card, no expiry, no PAYG path** |
-| Azure VM `Standard_B2s` (compute) | **The one $100 Azure for Students credit** | ~$75 (10 weeks × ~$30/mo) | ~$5 (≈12h/week actual use, per §1's own effort estimate) | **None — hard-stops at $100, no card on file** |
-| Azure PostgreSQL B1ms | same credit | ~$35 (10 weeks, always-on) | ~$6 (stopped between sessions, see below) | **None** |
+| Azure VM `Standard_B2s` (compute, incl. Postgres container) | **The one $100 Azure for Students credit** | ~$75 (10 weeks × ~$30/mo) | ~$5 (≈12h/week actual use, per §1's own effort estimate) | **None — hard-stops at $100, no card on file** |
+| Azure Managed Disk (~8 GB, Postgres data) | same credit | <$1 (10 weeks) — bills for storage regardless of VM state, but it's pennies | same | **None** |
 | Azure ADLS Gen2 | same credit | <$2 (~1–2 GB, Cool tier) | same (storage-based, not runtime-based) | **None — same hard-stop** |
 | Azure Key Vault | same credit | <$0.50 | same | **None** |
 | Azure Blob (DVC remote) | same credit | <$3 | same | **None** |
@@ -635,19 +636,18 @@ Covered in Phase 7 (§5). Design unchanged; metric names adapted to the domain. 
 | Datadog | 2 yr free, GH Student Pack | $0 | $0 | None |
 | Sentry | Free tier (5k events/mo) | $0 | $0 | None |
 | Power BI | University A3/A5 Pro (check first) or 60-day trial | $0 | $0 | None |
-| **Total against the $100 credit** | | **~$115.50 (10 weeks always-on — exceeds the credit)** | **~$16.50 (10 weeks, session-scoped)** | |
+| **Total against the $100 credit** | | **~$81.50 (10 weeks always-on)** | **~$11.50 (10 weeks, session-scoped)** | |
 | **Total out-of-pocket** | | | | **$0 either way** — the risk if the always-on column is left running is running out of credit mid-build (services suspend, no bill), not a charge |
 
-### Why session-scoped compute is the mitigation, not just "tear down eventually"
+*(Dropping the managed Postgres service — see Phase 1's ADR note — actually improved this table: no separate Postgres compute line item, no capacity/region risk, and the always-on total is now comfortably inside the $100 credit even without session-scoping, though session-scoping is still the discipline that makes the real-world number closer to $11 than $82.)*
 
-Left running 24/7, VM + Postgres alone would exhaust the $100 credit in **roughly 6 weeks** — short of the plan's own 10-week timeline. The fix isn't occasional cleanup, it's genuinely running compute **only during hands-on work sessions**, which — per this plan's own effort estimate of ~10–12h/week — is naturally a low duty cycle (~7% of the week). At that duty cycle the realistic 10-week burn drops to roughly **$16.50 total**, leaving most of the credit unused as margin.
+### Why session-scoped compute is still the right discipline
 
-Two different mechanisms, because Postgres and the VM have different jobs:
+Left running 24/7, the VM alone costs ~$30/mo — inside the $100 credit for the full 10 weeks even without session-scoping, unlike the earlier managed-Postgres version of this budget. But session-scoping is still worth doing, for two reasons that have nothing to do with running out of credit: it's the cost-control habit that generalizes to *every* future Azure resource added to this project, and it's a genuinely good demo line ("my compute layer stands up and tears down in under 15 minutes, on demand"). Per this plan's own effort estimate of ~10–12h/week, actual VM uptime naturally lands around ~7% of the week if you tear down between sessions, dropping the realistic 10-week burn to roughly **$11.50 total**.
 
-- **VM: `terraform destroy` / `apply` on `hindcast-azure-compute`.** It's cattle by design (§5 Phase 1) — nothing on it persists, so full destroy/recreate every session boundary is correct and already the plan.
-- **Postgres: `az postgres flexible-server stop` / `start`, not destroy.** Unlike the VM, Postgres holds Airflow's run history, which you *do* want to survive between sessions. Azure lets a Flexible Server be stopped for up to 7 days at a time (auto-restarts after that window) — storage is billed at pennies while stopped, but compute billing pauses. Wrap both into one `task standup` / `task teardown` pair once the Taskfile exists (Phase 3), so this is one command, not a thing to remember.
+**One mechanism now, not two** — because Postgres lives on a Managed Disk attached to the VM rather than as its own managed service, there's no separate "stop the database" step. `terraform destroy` / `apply` on `hindcast-azure-compute` handles both: the VM (cattle, no state) gets torn down and rebuilt, and the disk (with Postgres's data, and therefore Airflow's run history) detaches and reattaches to the new VM automatically. Wrap this into a `task standup` / `task teardown` pair once the Taskfile exists (Phase 3), so it's one command, not a thing to remember.
 
-**Budget alerts**: set at 25%/50%/80% of the single $100 credit — tighter thresholds than the two-subscription version of this plan would have used, since there's no second pool as a backstop.
+**Budget alerts**: set at 25%/50%/80% of the single $100 credit.
 
 ### Down to one real risk point
 
@@ -709,7 +709,7 @@ Have the §10 "Known Limitations" list ready and volunteer it. The OWM-nowcast-a
 | Wk | Phase | Focus | Exit criterion | Clock / risk |
 |---|---|---|---|---|
 | **0** | 0 | Accounts, OWM key verified, `locations.yml`, repo public | 4 endpoints return 200; **zero cloud resources** | None started |
-| **1** | 1 | Terraform Cloud, Azure data plane (ADLS/KV/Postgres) + Azure VM, one subscription | `destroy` + `apply` rebuilds in <15 min | No card-risk clock starts here — the subscription hard-stops; session-scoped VM/Postgres runtime starts now too |
+| **1** | 1 | Terraform Cloud, Azure data plane (ADLS/KV) + Azure VM (Postgres container + Managed Disk), one subscription | `destroy` + `apply` rebuilds in <15 min | No card-risk clock starts here — the subscription hard-stops; session-scoped VM runtime starts now too |
 | **2** | 2 | **Extractor live** + AQ history backfill | 🔴 **INGESTION RUNNING CONTINUOUSLY — hardest deadline in the plan** | Accrual clock **starts** |
 | **3** | 3 | Airflow 3.x, 9 DAGs, assets, idempotency | systemd timers retired; DAGs green 48h | — |
 | **4** | 4 | Spark bronze→silver, Delta, Pandera, benchmark | Silver populated; benchmark doc published | First 120h-lead slots now closeable |

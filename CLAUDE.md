@@ -8,11 +8,12 @@ with lead time. The flagship artifact is an **accumulating snapshot fact table**
 (`fct_forecast_slot`) — one row per (location, future 3-hour slot), rewritten ~40 times
 as successive forecasts revise the prediction, closed once the actual lands.
 
-Stack: Airflow 3.x + PySpark 3.5/Delta + Azure ADLS Gen2/Key Vault/PostgreSQL, all on a
-**single Azure for Students subscription** (a VM for compute, the rest for the data
-plane — kept in separate Terraform workspaces for blast-radius hygiene, not separate
-subscriptions), Snowflake (trial) → DuckDB (post-trial fallback), dbt-core, DVC, Terraform
-(+ Terraform Cloud), GitHub Actions, Datadog + Sentry + OpenLineage/Marquez, Power BI.
+Stack: Airflow 3.x + PySpark 3.5/Delta + a **Postgres container** (Airflow metadata, on a
+persistent Managed Disk) all on one Azure VM, + Azure ADLS Gen2/Key Vault for the data
+plane, all on a **single Azure for Students subscription** (kept in separate Terraform
+workspaces for blast-radius hygiene, not separate subscriptions), Snowflake (trial) →
+DuckDB (post-trial fallback), dbt-core, DVC, Terraform (+ Terraform Cloud), GitHub Actions,
+Datadog + Sentry + OpenLineage/Marquez, Power BI.
 
 **Full build plan — architecture, star schema, phase-by-phase deliverables, cost model:
 [`docs/PLAN.md`](docs/PLAN.md). Read it before proposing architecture changes.**
@@ -76,15 +77,20 @@ to me before silently working around any of these:
   minutes).
 - **The project deliberately uses only ONE of the user's two available $100 Azure
   credits** (user's choice, not a technical requirement — don't "helpfully" spread
-  resources onto the second one). This means VM + Postgres now share one pool instead of
-  two, and **left running 24/7 they'd exhaust it in ~6 weeks** — short of the build
-  timeline. The mitigation is session-scoped compute, not occasional cleanup: `terraform
-  destroy`/`apply` the VM every session boundary (it's cattle, this is already the
-  design), and `az postgres flexible-server stop`/`start` Postgres between sessions
-  (stop, not destroy — it holds Airflow's run history). At the plan's own ~10–12h/week
-  effort estimate this drops real 10-week burn to ~$16 instead of ~$115. If you ever
-  catch yourself leaving either running "just for convenience" between sessions, flag it
-  — that's the one habit that actually breaks this budget.
+  resources onto the second one).
+- **Postgres runs as a Docker container on the VM (data on a persistent Azure Managed
+  Disk), not Azure PostgreSQL Flexible Server.** The managed service failed twice in
+  real provisioning attempts — a 403 region restriction in `eastus`, then
+  `CapacityNotAvailable` in `centralus` after 17 minutes — so it was dropped in favor of
+  something that doesn't depend on Azure capacity outside our control. The disk (not the
+  VM's OS disk) is what makes this still work like "disposable compute": `terraform
+  destroy`/`apply` on the compute workspace tears down and rebuilds the VM, and the disk
+  (with Postgres's data / Airflow's run history) reattaches automatically. Don't
+  reintroduce a managed Postgres service without a real reason — this was hard-won.
+- Session-scoped VM runtime (`terraform destroy`/`apply` between work sessions) is good
+  practice, not strictly required for budget anymore — dropping managed Postgres means
+  the VM alone (~$30/mo) fits the $100 credit for the full build even always-on. Do it
+  anyway for the cost-discipline habit and because it's a genuinely good demo line.
 - **Only use OpenWeatherMap's Classic free tier** (Current Weather, 5-day/3-hour
   Forecast, Air Pollution + history, Geocoding) — 60 calls/min, 1M calls/month, no card,
   no expiry. **Never use One Call API 3.0/4.0** — it requires a card on file for its
