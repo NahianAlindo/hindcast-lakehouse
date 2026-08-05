@@ -39,11 +39,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
 
-      - run: uv sync --frozen
+      - run: uv sync --frozen --no-build
 
       - name: Write .env from secrets
         env:
@@ -57,12 +57,12 @@ jobs:
 
       - name: Run current-weather extractor
         if: github.event.schedule == '*/30 * * * *' || github.event.inputs.endpoint == 'current' || github.event.inputs.endpoint == 'all'
-        run: uv run python ingestion/hindcast_extract/run_current.py
+        run: uv run --frozen --no-build python ingestion/hindcast_extract/run_current.py
 
       - name: Run forecast extractor
         if: github.event.schedule == '0 */3 * * *' || github.event.inputs.endpoint == 'forecast' || github.event.inputs.endpoint == 'all'
-        run: uv run python ingestion/hindcast_extract/run_forecast.py
+        run: uv run --frozen --no-build python ingestion/hindcast_extract/run_forecast.py
 
       - name: Run air-quality extractor
         if: github.event.schedule == '0 * * * *' || github.event.inputs.endpoint == 'air_quality' || github.event.inputs.endpoint == 'all'
-        run: uv run python ingestion/hindcast_extract/run_air_quality.py
+        run: uv run --frozen --no-build python ingestion/hindcast_extract/run_air_quality.py

@@ -57,6 +57,12 @@ resource "azurerm_public_ip" "this" {
   sku                 = "Standard"
 }
 
+# Static analysis flags any public IP as a hotspot to review (terraform:S6329).
+# This one is load-bearing: it's how I SSH into the VM to do everything else
+# in this project, and there's no free managed-jump-host alternative (Azure
+# Bastion isn't free). The actual mitigation is the NSG above -- inbound is
+# locked to `var.home_ip`/32 on port 22 only, nothing else reaches this IP.
+
 resource "azurerm_network_security_group" "this" {
   name                = "vm-hindcast-nsg"
   location            = var.location
@@ -76,10 +82,10 @@ resource "azurerm_network_security_group" "this" {
 }
 
 resource "azurerm_network_interface" "this" {
-  name                            = "vm-hindcast519"
-  location                        = var.location
-  resource_group_name             = azurerm_resource_group.compute.name
-  accelerated_networking_enabled  = true
+  name                           = "vm-hindcast519"
+  location                       = var.location
+  resource_group_name            = azurerm_resource_group.compute.name
+  accelerated_networking_enabled = true
 
   ip_configuration {
     name                          = "ipconfig1"
@@ -98,12 +104,12 @@ resource "azurerm_network_interface_security_group_association" "this" {
 # destroy/apply -- only the attached Managed Disk (owned by azure_data) does. ---
 
 resource "azurerm_linux_virtual_machine" "this" {
-  name                   = "vm-hindcast"
-  resource_group_name    = azurerm_resource_group.compute.name
-  location               = var.location
-  size                   = var.vm_size
-  admin_username         = var.admin_username
-  network_interface_ids  = [azurerm_network_interface.this.id]
+  name                  = "vm-hindcast"
+  resource_group_name   = azurerm_resource_group.compute.name
+  location              = var.location
+  size                  = var.vm_size
+  admin_username        = var.admin_username
+  network_interface_ids = [azurerm_network_interface.this.id]
 
   admin_ssh_key {
     username   = var.admin_username

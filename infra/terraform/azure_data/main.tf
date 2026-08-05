@@ -20,6 +20,14 @@ resource "azurerm_storage_account" "lake" {
   account_kind             = "StorageV2"
   is_hns_enabled           = true # makes this ADLS Gen2, not plain blob storage
 
+  # No `identity` block: that's for this account to authenticate *outward*
+  # (e.g. customer-managed-key access to Key Vault). We don't use CMK here --
+  # extractors and the VM authenticate *into* storage via connection string /
+  # the VM's own Managed Identity, which don't need this account to have one
+  # of its own. Flagged by static analysis (terraform:S6378) as a generic
+  # "no identity = no auditability" check; not applicable to how this account
+  # is actually used.
+
   blob_properties {
     delete_retention_policy {
       days = 7
@@ -80,7 +88,13 @@ resource "azurerm_key_vault" "this" {
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
   rbac_authorization_enabled = true
-  purge_protection_enabled   = false
+  # Left false through Phase 1 while this vault was repeatedly destroyed/
+  # recreated during iteration (purge protection would've blocked reusing the
+  # same name for 7 days after each destroy). Now that it's a stable,
+  # long-lived resource holding real secrets (OWM key, Postgres password),
+  # turned on -- this is a one-way flag (Azure never lets it go back to
+  # false), which is exactly the point.
+  purge_protection_enabled   = true
   soft_delete_retention_days = 7
 }
 
@@ -122,10 +136,24 @@ resource "azurerm_managed_disk" "postgres_data" {
   # restrictions in eastus (see infra/terraform/azure_compute/main.tf), and a
   # Managed Disk can only attach to a VM in its own region. Storage
   # account/Key Vault stay in eastus -- only this disk needs to follow the VM.
-  location              = "westus2"
+  location             = "westus2"
   storage_account_type = "Standard_LRS"
   create_option        = "Empty"
   disk_size_gb         = 8
+
+  # This disk is never exported/downloaded outside its VM attach (no
+  # `az disk grant-access` SAS flow anywhere in this project) -- disabling
+  # public network access has no functional cost and closes off that path
+  # entirely.
+  public_network_access_enabled = false
+  network_access_policy         = "DenyAll"
+
+  # No `disk_encryption_set_id`: that's for customer-managed keys. Azure
+  # encrypts this disk at rest by default with platform-managed keys (SSE),
+  # which is sufficient here -- there's no compliance requirement driving a
+  # CMK setup, and standing one up would mean an extra Key Vault key + a
+  # dedicated Disk Encryption Set resource for no real benefit to a $0
+  # student portfolio project.
 
   lifecycle {
     prevent_destroy = true
