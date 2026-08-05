@@ -101,11 +101,11 @@ OpenWeatherMap Classic API
 
 | Service | Location | Purpose |
 |---|---|---|
-| Airflow 3.x scheduler/webserver/worker | Docker Compose on an **Azure VM (Sub B)** | Orchestration |
-| Airflow metadata DB | **Azure PostgreSQL Flexible Server** (B1ms, Sub A) | Keeps the VM disposable/stateless |
+| Airflow 3.x scheduler/webserver/worker | Docker Compose on an **Azure VM** | Orchestration |
+| Airflow metadata DB | **Azure PostgreSQL Flexible Server** (B1ms) | Keeps the VM disposable/stateless |
 | Spark 3.5 driver + workers | Docker Compose on same VM (local[*] / standalone) | bronze→silver |
-| Bronze / silver / exports / DVC remote | **Azure ADLS Gen2** (Sub A) | Data lake + DVC storage |
-| Secrets (OWM key, Snowflake, Azure SP, Datadog) | **Azure Key Vault** (Sub A) | No secrets on VM disk |
+| Bronze / silver / exports / DVC remote | **Azure ADLS Gen2** | Data lake + DVC storage |
+| Secrets (OWM key, Snowflake, Azure SP, Datadog) | **Azure Key Vault** | No secrets on VM disk |
 | Warehouse | **Snowflake** trial → **DuckDB** post-trial | Marts |
 | Infra state | **Terraform Cloud** workspace | Remote state, configured Phase 1 |
 | Metrics/logs/APM | **Datadog** (2yr free, GH Student Pack) | Observability |
@@ -114,7 +114,7 @@ OpenWeatherMap Classic API
 | CI/CD + fallback ingestion cron | **GitHub Actions** (public repo) | Build/test/deploy/accrue |
 | BI | **Power BI Desktop** (Windows native) | Report |
 
-**Why two Azure subscriptions instead of one:** Sub A holds the data plane (ADLS, Key Vault, PostgreSQL); **Sub B holds the compute VM**, replacing the DigitalOcean droplet the original version of this plan used (DigitalOcean wound down its GitHub Student Pack participation — all credits, including already-redeemed ones, expired 2026-08-01). Splitting compute from data across two independently-capped $100 credits isn't just tidy — it means a runaway compute cost and a storage cost can't drain the same pool, and **each subscription hard-stops on its own at $100 with no card on file**, so this swap actually removes a real-money risk point rather than just relocating DigitalOcean's (see §10).
+**One Azure subscription, not two.** The user has a second $100 Azure for Students credit available but has chosen to keep this project scoped to a single subscription — simpler to manage, one identity to authenticate, one credit to watch. The compute VM replaces the DigitalOcean droplet the original version of this plan used (DigitalOcean wound down its GitHub Student Pack participation — all credits, including already-redeemed ones, expired 2026-08-01). Azure for Students still **hard-stops at $100 with no card on file** — that real-money-risk elimination from the DigitalOcean swap holds regardless of subscription count (see §10) — but the trade-off of going single-subscription is a **much tighter runway**: VM and data plane now draw from the same $100 pool instead of two, so disciplined VM teardown between work sessions is load-bearing, not optional (see §10's revised budget). Terraform still keeps compute and data plane in **separate workspaces** within the one subscription — that's good state-blast-radius hygiene on its own merits, independent of how many credits are behind it.
 
 ---
 
@@ -156,7 +156,7 @@ Resolved once via `/geo/1.0/direct`, output committed as `ingestion/config/locat
 | Item | Action | Clock started? |
 |---|---|---|
 | GitHub Student Developer Pack | Confirm active. **DigitalOcean's $200 credit is no longer usable — partnership wound down, all credit (including already-redeemed) expired 2026-08-01.** Don't rely on the pack listing page; it's not been updated to remove it. | No |
-| Azure for Students | Confirm **both** $100 credits active (Sub A = data plane, Sub B = compute VM), note expiry dates | Already running |
+| Azure for Students | Confirm the $100 credit active on the subscription this project uses (a second credit exists on another subscription but is deliberately out of scope here), note expiry date | Already running |
 | Datadog | Already activated/logged in — capture API + APP keys | No |
 | Sentry | Create free-tier org + 2 projects (`hindcast-ingest`, `hindcast-airflow`) | No |
 | Terraform Cloud | Account exists; **org/workspace creation deferred to Phase 1** | No |
@@ -183,17 +183,18 @@ Already installed (WSL2 Ubuntu, Docker Desktop, Python 3.11 via `uv`, `terraform
 **Goal:** every piece of infrastructure exists in Terraform and nothing was created by clicking.
 
 **Deliverables**
-- Terraform Cloud org `hindcast` + workspaces `hindcast-azure-data` (Sub A) and `hindcast-azure-compute` (Sub B); VCS-driven plans on PR, manual apply.
-- `infra/terraform/azure_data/` (Sub A provider alias): resource group, **ADLS Gen2** storage account with containers `bronze`, `silver`, `exports`, `dvc`; hierarchical namespace on; lifecycle rule → Cool at 30d. **Key Vault** with RBAC auth, secrets seeded from local `.env` via `az` (values never in state files — use `ignore_changes` on secret values). **PostgreSQL Flexible Server** B1ms, 32 GB, firewall allowing only the VM's IP + your home IP.
-- `infra/terraform/azure_compute/` (Sub B provider alias): `azurerm_linux_virtual_machine`, size **`Standard_B2s`** (2 vCPU / 4 GB, burstable — the closest match to the `s-2vcpu-4gb` droplet this replaces, ~$30/mo pay-as-you-go against the Sub B credit), Ubuntu 22.04, a Network Security Group (22 from home IP only; 8080/3000 closed — tunnel via SSH, same as the original plan), a static public IP, an SSH key resource, and `cloud-init` (via `custom_data`) installing Docker + Compose and pulling the Compose bundle — mechanically the same role the droplet's cloud-init played.
-- Two service principals (Azure): one for the VM (ADLS RW + KV get, cross-subscription), one for GitHub Actions (narrower).
+- Terraform Cloud org `hindcast` + workspaces `hindcast-azure-data` and `hindcast-azure-compute` — **same Azure subscription**, kept in separate Terraform workspaces/states purely for blast-radius hygiene (you can destroy compute without touching the data-plane state, and vice versa); VCS-driven plans on PR, manual apply.
+- `infra/terraform/azure_data/`: resource group, **ADLS Gen2** storage account with containers `bronze`, `silver`, `exports`, `dvc`; hierarchical namespace on; lifecycle rule → Cool at 30d. **Key Vault** with RBAC auth, secrets seeded from local `.env` via `az` (values never in state files — use `ignore_changes` on secret values). **PostgreSQL Flexible Server** B1ms, 32 GB, firewall allowing only the VM's IP + your home IP.
+- `infra/terraform/azure_compute/`: `azurerm_linux_virtual_machine`, size **`Standard_B2s`** (2 vCPU / 4 GB, burstable — the closest match to the `s-2vcpu-4gb` droplet this replaces, ~$30/mo pay-as-you-go), Ubuntu 22.04, a Network Security Group (22 from home IP only; 8080/3000 closed — tunnel via SSH, same as the original plan), a static public IP, an SSH key resource, and `cloud-init` (via `custom_data`) installing Docker + Compose and pulling the Compose bundle — mechanically the same role the droplet's cloud-init played.
+- Two service principals (Azure): one for the VM (ADLS RW + KV get), one for GitHub Actions (narrower). Same subscription now, so no cross-subscription role assignment needed — just least-privilege scoping.
 - Datadog Agent + Sentry DSN wired via the VM's cloud-init env.
 
 **Key decisions**
-- The VM is **cattle**: no state on it. Airflow metadata → Azure Postgres (Sub A); DAG code → baked images; data → ADLS (Sub A). A `terraform destroy` + `apply` on the Sub B workspace must restore a working system in <15 min, and that is an explicitly tested runbook, not an aspiration.
-- **Azure VM instead of a DigitalOcean droplet**: DigitalOcean wound down its GitHub Student Pack participation and all credit (including already-redeemed) expired 2026-08-01 — it's simply not available anymore, not merely "not yet redeemed." Azure Sub B was already sitting there as active, card-free credit, so it absorbs the compute role instead.
+- The VM is **cattle**: no state on it. Airflow metadata → Azure Postgres; DAG code → baked images; data → ADLS. A `terraform destroy` + `apply` on the compute workspace must restore a working system in <15 min, and that is an explicitly tested runbook, not an aspiration.
+- **Azure VM instead of a DigitalOcean droplet**: DigitalOcean wound down its GitHub Student Pack participation and all credit (including already-redeemed) expired 2026-08-01 — it's simply not available anymore, not merely "not yet redeemed." An Azure VM absorbs the compute role instead.
 - **One important Azure-specific gotcha the DO droplet didn't have**: an Azure VM that's *stopped* but not *deallocated* still bills for compute. `terraform destroy` avoids this by removing the resource outright, but if you ever stop the VM by hand (e.g. from the Azure Portal) for a quick pause, use **"Stop (deallocate)"**, never a plain OS shutdown — plain shutdown leaves the compute meter running.
-- Azure budget alerts at 25%/50%/80% of **each** $100 credit, tracked separately per subscription since Sub A and Sub B now draw down independently.
+- **Single-subscription decision (user's call, not a technical requirement):** a second $100 Azure for Students credit exists but is deliberately out of scope for this project — one identity, one credit, simpler to manage. The real consequence is budget, not architecture: VM and data plane now share one $100 pool instead of two, so **VM teardown between work sessions moves from "good practice" to load-bearing** (§10) — comfortably supported by the fact that continuous ingestion doesn't depend on the VM being up at all (the GitHub Actions `accrual-fallback.yml` workflow, already running, covers that independently of whether the VM exists).
+- Azure budget alerts at 25%/50%/80% of the single $100 credit.
 
 **Demo line:** *"The entire platform is destroyable and rebuildable in under fifteen minutes from a single `terraform apply`, with state in Terraform Cloud and secrets never touching a disk I control."*
 
@@ -431,7 +432,7 @@ One dashboard, four rows: **Ingest health / Slot lifecycle / Transform / Warehou
   3. A ~10-week window cannot support seasonal conclusions; per-season breakdowns are structurally present but statistically thin, and the report labels them as such.
   4. Ingestion gaps are recorded, never interpolated.
 - **Optional enrichment, documented not built:** Open-Meteo's free, key-less **historical forecast archive** would allow backfilling genuine predicted-vs-actual pairs years deep and would turn limitation (3) into a non-issue. Named as the single highest-value next step.
-- **Teardown**: `terraform destroy` the Azure Sub B VM workspace + Azure Postgres; keep ADLS (pennies) or export marts to a GitHub Release; flip dbt to DuckDB; enter zero-cost mode (§10).
+- **Teardown**: `terraform destroy` the compute workspace (VM) + Azure Postgres; keep ADLS (pennies) or export marts to a GitHub Release; flip dbt to DuckDB; enter zero-cost mode (§10).
 
 ---
 
@@ -618,23 +619,35 @@ Covered in Phase 7 (§5). Design unchanged; metric names adapted to the domain. 
 
 ### Budget
 
-| Service | Funding | Est. consumption over 10 weeks | Real-money exposure |
-|---|---|---|---|
-| **OpenWeatherMap** | **Free Classic tier** | ~29k calls/mo of 1,000,000 (**2.9%**) | **None — no card, no expiry, no PAYG path** |
-| Azure VM `Standard_B2s` (compute) | $100 Azure for Students **Sub B** | ~$75 (10 weeks × ~$30/mo) | **None — hard-stops at $100, no card on file** |
-| Azure ADLS Gen2 | $100 Azure for Students **Sub A** | <$2 (~1–2 GB, Cool tier) | **None — same hard-stop** |
-| Azure PostgreSQL B1ms | Sub A | ~$35 (10 weeks) | **None** |
-| Azure Key Vault | Sub A | <$0.50 | **None** |
-| Azure Blob (DVC remote) | Sub A (shares the $100 with ADLS/PG/KV above) | <$3 | **None** |
-| **Snowflake** | 30-day trial, $400 credits, **no card** | ~$25 of credits (XS, `AUTO_SUSPEND=60`) | ⚠️ **Only if you convert to on-demand — never do** |
-| Terraform Cloud | Free tier (≤5 users) | $0 | None |
-| GitHub Actions | Free, unlimited (public repo) | $0 | None |
-| Datadog | 2 yr free, GH Student Pack | $0 | None |
-| Sentry | Free tier (5k events/mo) | $0 | None |
-| Power BI | University A3/A5 Pro (check first) or 60-day trial | $0 | None |
-| **Total out-of-pocket** | | | **$0** |
+**Single-subscription decision changes this table's shape.** Everything below draws from **one** $100 Azure for Students credit — the user has a second $100 credit available on a separate subscription but has deliberately chosen to keep this project on one, for simplicity. That makes VM/Postgres runtime discipline load-bearing, not optional (see the runway math and mitigation right after this table).
 
-*(Sub A's four line items all draw from the same $100 credit and sum to well under it; Sub B's VM is the only thing drawing on the second $100.)*
+| Service | Funding | Est. consumption, always-on for 10 weeks | Est. consumption, session-scoped (see below) | Real-money exposure |
+|---|---|---|---|---|
+| **OpenWeatherMap** | **Free Classic tier** | ~29k calls/mo of 1,000,000 (**2.9%**) | same | **None — no card, no expiry, no PAYG path** |
+| Azure VM `Standard_B2s` (compute) | **The one $100 Azure for Students credit** | ~$75 (10 weeks × ~$30/mo) | ~$5 (≈12h/week actual use, per §1's own effort estimate) | **None — hard-stops at $100, no card on file** |
+| Azure PostgreSQL B1ms | same credit | ~$35 (10 weeks, always-on) | ~$6 (stopped between sessions, see below) | **None** |
+| Azure ADLS Gen2 | same credit | <$2 (~1–2 GB, Cool tier) | same (storage-based, not runtime-based) | **None — same hard-stop** |
+| Azure Key Vault | same credit | <$0.50 | same | **None** |
+| Azure Blob (DVC remote) | same credit | <$3 | same | **None** |
+| **Snowflake** | 30-day trial, $400 credits, **no card** | ~$25 of credits (XS, `AUTO_SUSPEND=60`) | same | ⚠️ **Only if you convert to on-demand — never do** |
+| Terraform Cloud | Free tier (≤5 users) | $0 | $0 | None |
+| GitHub Actions | Free, unlimited (public repo) | $0 | $0 | None |
+| Datadog | 2 yr free, GH Student Pack | $0 | $0 | None |
+| Sentry | Free tier (5k events/mo) | $0 | $0 | None |
+| Power BI | University A3/A5 Pro (check first) or 60-day trial | $0 | $0 | None |
+| **Total against the $100 credit** | | **~$115.50 (10 weeks always-on — exceeds the credit)** | **~$16.50 (10 weeks, session-scoped)** | |
+| **Total out-of-pocket** | | | | **$0 either way** — the risk if the always-on column is left running is running out of credit mid-build (services suspend, no bill), not a charge |
+
+### Why session-scoped compute is the mitigation, not just "tear down eventually"
+
+Left running 24/7, VM + Postgres alone would exhaust the $100 credit in **roughly 6 weeks** — short of the plan's own 10-week timeline. The fix isn't occasional cleanup, it's genuinely running compute **only during hands-on work sessions**, which — per this plan's own effort estimate of ~10–12h/week — is naturally a low duty cycle (~7% of the week). At that duty cycle the realistic 10-week burn drops to roughly **$16.50 total**, leaving most of the credit unused as margin.
+
+Two different mechanisms, because Postgres and the VM have different jobs:
+
+- **VM: `terraform destroy` / `apply` on `hindcast-azure-compute`.** It's cattle by design (§5 Phase 1) — nothing on it persists, so full destroy/recreate every session boundary is correct and already the plan.
+- **Postgres: `az postgres flexible-server stop` / `start`, not destroy.** Unlike the VM, Postgres holds Airflow's run history, which you *do* want to survive between sessions. Azure lets a Flexible Server be stopped for up to 7 days at a time (auto-restarts after that window) — storage is billed at pennies while stopped, but compute billing pauses. Wrap both into one `task standup` / `task teardown` pair once the Taskfile exists (Phase 3), so this is one command, not a thing to remember.
+
+**Budget alerts**: set at 25%/50%/80% of the single $100 credit — tighter thresholds than the two-subscription version of this plan would have used, since there's no second pool as a backstop.
 
 ### Down to one real risk point
 
@@ -643,7 +656,7 @@ This plan has been through two revisions, and each one removed a risk class rath
 | # | Risk | Status | Why |
 |---|---|---|---|
 | ~~1~~ | ~~**Spotify Premium** trial clock~~ | ✅ **ELIMINATED** (pivot to OpenWeatherMap) | `/me/*` endpoints required active Premium — a 30-day clock coupled to the *data source itself*, the worst place for one, since unlike compute you can't rebuild lost history. |
-| ~~2~~ | ~~**DigitalOcean** card-on-file, bills once credit exhausted~~ | ✅ **ELIMINATED** (DO's Student Pack partnership ended, forced a swap to Azure Sub B) | Azure for Students has **no payment method attached at all** — it hard-stops at $100 rather than billing. The forced substitution turned out to remove risk, not just relocate it. |
+| ~~2~~ | ~~**DigitalOcean** card-on-file, bills once credit exhausted~~ | ✅ **ELIMINATED** (DO's Student Pack partnership ended, forced a swap to an Azure VM) | Azure for Students has **no payment method attached at all** — it hard-stops at $100 rather than billing. The forced substitution turned out to remove risk, not just relocate it. |
 | **3** | **Snowflake** trial needs no card, but converting to on-demand does | ⚠️ **Live, but fully avoidable** | Never enter payment details. Sign up Week 6 so the trial ends ~Week 10 with margin. **dbt's `duckdb` target is built in Week 5 and is the pre-tested exit ramp**, not an emergency scramble. |
 
 **Every remaining Azure resource — VM included — fails by throttling or hard-stopping, never by billing**, the same property that made OpenWeatherMap's Classic tier safe in the first place. The only genuine "don't do this" left in the entire budget is: don't add a payment method to Snowflake. Everything else can be misconfigured, over-provisioned, or forgotten about and it will simply stop working, not generate a bill.
@@ -696,7 +709,7 @@ Have the §10 "Known Limitations" list ready and volunteer it. The OWM-nowcast-a
 | Wk | Phase | Focus | Exit criterion | Clock / risk |
 |---|---|---|---|---|
 | **0** | 0 | Accounts, OWM key verified, `locations.yml`, repo public | 4 endpoints return 200; **zero cloud resources** | None started |
-| **1** | 1 | Terraform Cloud, Azure Sub A (ADLS/KV/Postgres), Azure Sub B (VM) | `destroy` + `apply` rebuilds in <15 min | No card-risk clock starts here — both subscriptions hard-stop |
+| **1** | 1 | Terraform Cloud, Azure data plane (ADLS/KV/Postgres) + Azure VM, one subscription | `destroy` + `apply` rebuilds in <15 min | No card-risk clock starts here — the subscription hard-stops; session-scoped VM/Postgres runtime starts now too |
 | **2** | 2 | **Extractor live** + AQ history backfill | 🔴 **INGESTION RUNNING CONTINUOUSLY — hardest deadline in the plan** | Accrual clock **starts** |
 | **3** | 3 | Airflow 3.x, 9 DAGs, assets, idempotency | systemd timers retired; DAGs green 48h | — |
 | **4** | 4 | Spark bronze→silver, Delta, Pandera, benchmark | Silver populated; benchmark doc published | First 120h-lead slots now closeable |

@@ -8,10 +8,11 @@ with lead time. The flagship artifact is an **accumulating snapshot fact table**
 (`fct_forecast_slot`) — one row per (location, future 3-hour slot), rewritten ~40 times
 as successive forecasts revise the prediction, closed once the actual lands.
 
-Stack: Airflow 3.x + PySpark 3.5/Delta on an **Azure VM**, Azure (ADLS Gen2 / Key Vault /
-PostgreSQL — a second, independent Azure subscription from the VM), Snowflake (trial) →
-DuckDB (post-trial fallback), dbt-core, DVC, Terraform (+ Terraform Cloud), GitHub
-Actions, Datadog + Sentry + OpenLineage/Marquez, Power BI.
+Stack: Airflow 3.x + PySpark 3.5/Delta + Azure ADLS Gen2/Key Vault/PostgreSQL, all on a
+**single Azure for Students subscription** (a VM for compute, the rest for the data
+plane — kept in separate Terraform workspaces for blast-radius hygiene, not separate
+subscriptions), Snowflake (trial) → DuckDB (post-trial fallback), dbt-core, DVC, Terraform
+(+ Terraform Cloud), GitHub Actions, Datadog + Sentry + OpenLineage/Marquez, Power BI.
 
 **Full build plan — architecture, star schema, phase-by-phase deliverables, cost model:
 [`docs/PLAN.md`](docs/PLAN.md). Read it before proposing architecture changes.**
@@ -35,21 +36,29 @@ change, it was forced by an external partner exiting the program; `education.git
 still lists the DO offer, but it's stale and not actually redeemable. If you see references
 to a "droplet" anywhere, it means an Azure VM now, or the doc is stale and should be fixed.
 
-**Status: Phase 0 in progress.** Local tooling, git repo, OWM API key (verified working,
-Classic free tier confirmed with no card attached), and `ingestion/config/locations.yml`
-(10 curated locations) exist. No ingestion code written yet — that's the immediate next
-step. Follow the monorepo layout and phase order in `docs/PLAN.md` §5 — don't jump ahead
-(e.g. don't sign up for Snowflake before Week 6; don't build dbt marts before Spark/silver
-exists; don't build the report before enough wall-clock accrual has happened for the
-analysis to mean anything — see the critical-path note below).
+**Status: Phase 0 complete, ingestion live, Phase 1 starting.** Local tooling, git repo
+(public, pushed via SSH to `github.com/NahianAlindo/hindcast-lakehouse`), OWM API key
+(verified, Classic free tier, no card), and `ingestion/config/locations.yml` (10 curated
+locations) all exist. `ingestion/hindcast_extract/` (current/forecast/air_quality
+runners) is written and verified working. **Accrual is live** via
+`.github/workflows/accrual-fallback.yml` — GitHub Actions cron on all three cadences,
+committing landed bronze straight back to the repo as an interim durable store (a
+`.gitignore` exception carves out `data/bronze/` for this — it's a stopgap, replaced once
+Phase 1 provisions ADLS). Currently starting **Phase 1**: Terraform Cloud org/workspaces
+and the Azure infra (single subscription — see Tech Stack note above). Follow the
+monorepo layout and phase order in `docs/PLAN.md` §5 for everything after this — don't
+jump ahead (e.g. don't sign up for Snowflake before Week 6; don't build dbt marts before
+Spark/silver exists; don't build the report before enough wall-clock accrual has happened
+for the analysis to mean anything — see the critical-path note in `docs/PLAN.md` §12).
 
 ## Tech stack
 
 Python 3.11 · Apache Spark 3.5 (+ delta-spark 3.2) · Apache Airflow 3.x · dbt-core (dual
 target: `duckdb` dev, `snowflake` prod) · Snowflake · DuckDB · DVC · Terraform (+
-Terraform Cloud remote state) · Docker Compose · Azure (two subscriptions: **Sub B** for
-the compute VM, **Sub A** for ADLS Gen2 / Key Vault / PostgreSQL) · GitHub Actions ·
-Datadog · Sentry · OpenLineage/Marquez · Power BI.
+Terraform Cloud remote state) · Docker Compose · Azure (single subscription: a VM for
+compute, ADLS Gen2 / Key Vault / PostgreSQL for the data plane — separate Terraform
+workspaces, not separate subscriptions) · GitHub Actions · Datadog · Sentry ·
+OpenLineage/Marquez · Power BI.
 
 ## Non-negotiable constraints
 
@@ -59,12 +68,23 @@ to me before silently working around any of these:
 - **Total spend must be $0. Hard requirement, not a preference.** See `docs/PLAN.md` §10.
   Down to **one** real-money risk point now (dropping Spotify eliminated the
   Premium-trial clock; DigitalOcean's Student Pack partnership ending forced a move to
-  Azure Sub B, which turned out to eliminate that risk too — Azure for Students has no
+  an Azure VM, which turned out to eliminate that risk too — Azure for Students has no
   card on file at all and hard-stops at $100). The one thing left: **Snowflake**'s
   30-day trial needs no card, but converting to on-demand does — never do that, flip the
   dbt target to `duckdb` instead (already built as a first-class target from Week 5, not
   a last-minute scramble). Keep the GitHub repo **public** (unlimited free Actions
   minutes).
+- **The project deliberately uses only ONE of the user's two available $100 Azure
+  credits** (user's choice, not a technical requirement — don't "helpfully" spread
+  resources onto the second one). This means VM + Postgres now share one pool instead of
+  two, and **left running 24/7 they'd exhaust it in ~6 weeks** — short of the build
+  timeline. The mitigation is session-scoped compute, not occasional cleanup: `terraform
+  destroy`/`apply` the VM every session boundary (it's cattle, this is already the
+  design), and `az postgres flexible-server stop`/`start` Postgres between sessions
+  (stop, not destroy — it holds Airflow's run history). At the plan's own ~10–12h/week
+  effort estimate this drops real 10-week burn to ~$16 instead of ~$115. If you ever
+  catch yourself leaving either running "just for convenience" between sessions, flag it
+  — that's the one habit that actually breaks this budget.
 - **Only use OpenWeatherMap's Classic free tier** (Current Weather, 5-day/3-hour
   Forecast, Air Pollution + history, Geocoding) — 60 calls/min, 1M calls/month, no card,
   no expiry. **Never use One Call API 3.0/4.0** — it requires a card on file for its
@@ -121,12 +141,12 @@ to me before silently working around any of these:
 
 - I'm a student building this as a portfolio piece — optimize for things that are
   genuinely demoable and defensible in an interview, not just "more tools."
-- GitHub Student Developer Pack credits: Azure ×2 $100 (both already activated — Sub A
-  for data plane, Sub B for the compute VM), Datadog 2yr free (already activated/logged
-  in). **DigitalOcean's $200 credit is gone** — partnership ended, all credit expired
-  2026-08-01, not usable regardless of what the pack page still shows. Plus a 30-day
-  Snowflake trial once Week 6 starts it. Flag anything that risks burning credits faster
-  than `docs/PLAN.md` §10 budgets for.
+- GitHub Student Developer Pack credits: Azure ×2 $100 activated, but **this project only
+  uses one of them** (user's deliberate choice — see the constraint above). Datadog 2yr
+  free (already activated/logged in). **DigitalOcean's $200 credit is gone** —
+  partnership ended, all credit expired 2026-08-01, not usable regardless of what the
+  pack page still shows. Plus a 30-day Snowflake trial once Week 6 starts it. Flag
+  anything that risks burning credits faster than `docs/PLAN.md` §10 budgets for.
 - **Calendar reality check**: this project's analysis quality is gated by wall-clock time
   accrued since ingestion went live, not by hours worked. Don't suggest shortcuts that
   would effectively restart the accrual clock (e.g. re-architecting the bronze layout
