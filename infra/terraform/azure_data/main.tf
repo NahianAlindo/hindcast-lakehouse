@@ -106,12 +106,44 @@ resource "azurerm_key_vault_secret" "owm_api_key" {
 
 # --- Postgres for Airflow metadata ---
 #
-# NOT here. After Azure PostgreSQL Flexible Server failed twice on region
-# restrictions (eastus) and then CapacityNotAvailable (centralus, after a
-# 17-minute provision attempt), the pragmatic call was to drop the managed
-# service entirely and run Postgres as a Docker container on the compute VM
-# instead (infra/terraform/azure_compute). Traded away: the VM is no longer
-# fully stateless -- destroying it loses Airflow's run history, not just its
-# compute. Traded for: this resource stopped being the thing blocking Phase 1
-# on Azure capacity/region availability outside our control. See
-# docs/PLAN.md's updated Phase 1 section and ADR for the full reasoning.
+# No managed Postgres service here. After Azure PostgreSQL Flexible Server
+# failed twice on region restrictions (eastus) and then CapacityNotAvailable
+# (centralus, after a 17-minute provision attempt), Postgres moved to a Docker
+# container on the compute VM (infra/terraform/azure_compute) instead. This
+# disk -- not the VM's OS disk -- is what keeps that arrangement from losing
+# Airflow's history every time the VM is torn down: it's managed here, in the
+# data-plane workspace, specifically so a routine `terraform destroy` on the
+# *compute* workspace can't touch it. azure_compute only attaches it.
+resource "azurerm_managed_disk" "postgres_data" {
+  name                = "disk-${var.project}-postgres-data"
+  resource_group_name = azurerm_resource_group.this.name
+  # Deliberately NOT azurerm_resource_group.this.location (eastus): the
+  # compute VM ended up in westus2 after every Ubuntu VM size hit capacity
+  # restrictions in eastus (see infra/terraform/azure_compute/main.tf), and a
+  # Managed Disk can only attach to a VM in its own region. Storage
+  # account/Key Vault stay in eastus -- only this disk needs to follow the VM.
+  location              = "westus2"
+  storage_account_type = "Standard_LRS"
+  create_option        = "Empty"
+  disk_size_gb         = 8
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# Admin password for the VM-hosted Postgres container. Generated and stored
+# here (Terraform is the source of truth for it either way, since it's the
+# thing generating it); azure_compute reads it back via remote state to bake
+# into the VM's Docker Compose config.
+resource "random_password" "postgres_admin" {
+  length  = 24
+  special = true
+}
+
+resource "azurerm_key_vault_secret" "postgres_admin_password" {
+  name         = "postgres-admin-password"
+  value        = random_password.postgres_admin.result
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+}

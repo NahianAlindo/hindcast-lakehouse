@@ -37,7 +37,7 @@ change, it was forced by an external partner exiting the program; `education.git
 still lists the DO offer, but it's stale and not actually redeemable. If you see references
 to a "droplet" anywhere, it means an Azure VM now, or the doc is stale and should be fixed.
 
-**Status: Phase 0 complete, ingestion live, Phase 1 starting.** Local tooling, git repo
+**Status: Phase 0 and Phase 1 complete, ingestion live.** Local tooling, git repo
 (public, pushed via SSH to `github.com/NahianAlindo/hindcast-lakehouse`), OWM API key
 (verified, Classic free tier, no card), and `ingestion/config/locations.yml` (10 curated
 locations) all exist. `ingestion/hindcast_extract/` (current/forecast/air_quality
@@ -45,12 +45,30 @@ runners) is written and verified working. **Accrual is live** via
 `.github/workflows/accrual-fallback.yml` — GitHub Actions cron on all three cadences,
 committing landed bronze straight back to the repo as an interim durable store (a
 `.gitignore` exception carves out `data/bronze/` for this — it's a stopgap, replaced once
-Phase 1 provisions ADLS). Currently starting **Phase 1**: Terraform Cloud org/workspaces
-and the Azure infra (single subscription — see Tech Stack note above). Follow the
-monorepo layout and phase order in `docs/PLAN.md` §5 for everything after this — don't
-jump ahead (e.g. don't sign up for Snowflake before Week 6; don't build dbt marts before
-Spark/silver exists; don't build the report before enough wall-clock accrual has happened
-for the analysis to mean anything — see the critical-path note in `docs/PLAN.md` §12).
+ingestion is rewritten to write directly to ADLS in a later phase).
+
+**Phase 1 (IaC foundation) is applied and verified, zero drift in both Terraform
+workspaces:**
+- `hindcast-azure-data` (eastus): resource group, ADLS Gen2 (4 containers + lifecycle
+  policy), Key Vault (RBAC, OWM key + Postgres password seeded), a persistent 8 GB
+  Managed Disk for Postgres's data directory.
+- `hindcast-azure-compute` (**westus2**, not eastus — see `docs/PLAN.md` §5 Phase 1 for
+  why): VM (`Standard_B2ats_v2`, Ubuntu 24.04), NSG locked to home IP, the persistent
+  disk attached, Managed Identity with RBAC roles onto ADLS + Key Vault. **This VM was
+  created via the Azure Portal, then `terraform import`-ed** after every Ubuntu VM size
+  failed with capacity restrictions through the CLI/Terraform path in `eastus` — the
+  Portal's own size picker succeeded in `westus2` where scripted creation kept failing on
+  the same sizes. Worth knowing as a real fallback pattern, not just a one-off workaround.
+- Docker + a Postgres 16 container are running on the VM (verified via SSH, `pg_isready`
+  passing), data on the persistent disk at `/mnt/postgres-data/pgdata` (a subdirectory,
+  not the mount point — `initdb` refuses a non-empty directory, and a fresh ext4 disk
+  always has `lost+found`).
+
+Next up: Phase 3 (Airflow deployment on this VM) — Phase 2 (ingestion) is already live via
+the GitHub Actions accrual-fallback path above. Don't jump ahead further than Phase 3
+(e.g. don't sign up for Snowflake before Week 6; don't build dbt marts before Spark/silver
+exists; don't build the report before enough wall-clock accrual has happened for the
+analysis to mean anything — see the critical-path note in `docs/PLAN.md` §12).
 
 ## Tech stack
 
