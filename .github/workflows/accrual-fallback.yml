@@ -46,10 +46,14 @@ jobs:
       - run: uv sync --frozen
 
       - name: Write .env from secrets
+        env:
+          OWM_API_KEY: ${{ secrets.OWM_API_KEY }}
+          OWM_BASE_URL: ${{ secrets.OWM_BASE_URL }}
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
         run: |
-          echo "OWM_API_KEY=${{ secrets.OWM_API_KEY }}" >> .env
-          echo "OWM_BASE_URL=${{ secrets.OWM_BASE_URL }}" >> .env
-          echo "AZURE_STORAGE_CONNECTION_STRING=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" >> .env
+          echo "OWM_API_KEY=$OWM_API_KEY" >> .env
+          echo "OWM_BASE_URL=$OWM_BASE_URL" >> .env
+          echo "AZURE_STORAGE_CONNECTION_STRING=$AZURE_STORAGE_CONNECTION_STRING" >> .env
 
       - name: Run current-weather extractor
         if: github.event.schedule == '*/30 * * * *' || github.event.inputs.endpoint == 'current' || github.event.inputs.endpoint == 'all'
