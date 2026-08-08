@@ -136,6 +136,36 @@ resource "azurerm_key_vault_secret" "storage_connection_string" {
   }
 }
 
+# Encrypts connection passwords at rest in Airflow's own metadata DB -- not an
+# extractor secret, but fetched by the same entrypoint-wrapper mechanism for
+# the same reason (never typed into docker-compose).
+resource "azurerm_key_vault_secret" "airflow_fernet_key" {
+  name         = "airflow-fernet-key"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# Airflow's web UI admin login. Unlike owm_api_key/storage_connection_string/
+# airflow_fernet_key above (fetched at container runtime via Managed Identity),
+# this is consumed at docker-compose render time via a VM-local .env file
+# (git-ignored, materialized from this secret at deploy time) -- it only
+# gates the `airflow-init` bootstrap step, not anything DAG/task code touches.
+resource "azurerm_key_vault_secret" "airflow_admin_password" {
+  name         = "airflow-admin-password"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # --- Postgres for Airflow metadata ---
 #
 # No managed Postgres service here. After Azure PostgreSQL Flexible Server
