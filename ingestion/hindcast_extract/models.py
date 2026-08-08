@@ -101,5 +101,5 @@ def validate(endpoint: str, payload: dict) -> tuple[bool, str | None]:
     try:
         model.model_validate(payload)
         return True, None
-    except Exception as exc:  # noqa: BLE001 -- deliberately broad, see docstring
+    except Exception as exc:  # noqa: BLE001  # deliberately broad, see docstring
         return False, str(exc)
