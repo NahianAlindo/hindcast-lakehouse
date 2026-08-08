@@ -120,6 +120,22 @@ resource "azurerm_key_vault_secret" "owm_api_key" {
   }
 }
 
+# Phase 3: the VM's Airflow containers fetch this at startup via the VM's
+# Managed Identity (Key Vault Secrets User role, already granted in
+# azure_compute) instead of a connection string typed into docker-compose.
+# Real value set out-of-band via `az keyvault secret set`, same pattern as
+# owm_api_key above.
+resource "azurerm_key_vault_secret" "storage_connection_string" {
+  name         = "storage-connection-string"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # --- Postgres for Airflow metadata ---
 #
 # No managed Postgres service here. After Azure PostgreSQL Flexible Server
