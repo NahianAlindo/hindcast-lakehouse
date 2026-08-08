@@ -20,13 +20,15 @@ resource "azurerm_storage_account" "lake" {
   account_kind             = "StorageV2"
   is_hns_enabled           = true # makes this ADLS Gen2, not plain blob storage
 
-  # No `identity` block: that's for this account to authenticate *outward*
-  # (e.g. customer-managed-key access to Key Vault). We don't use CMK here --
-  # extractors and the VM authenticate *into* storage via connection string /
-  # the VM's own Managed Identity, which don't need this account to have one
-  # of its own. Flagged by static analysis (terraform:S6378) as a generic
-  # "no identity = no auditability" check; not applicable to how this account
-  # is actually used.
+  # Not currently used for anything (we don't do customer-managed-key
+  # encryption -- extractors and the VM authenticate *into* this account via
+  # connection string / the VM's own Managed Identity, neither of which needs
+  # this account to have an identity of its own). Added anyway: a
+  # system-assigned identity costs nothing, doesn't replace the resource, and
+  # clears terraform:S6378. Free to have on hand if CMK is ever adopted later.
+  identity {
+    type = "SystemAssigned"
+  }
 
   blob_properties {
     delete_retention_policy {
