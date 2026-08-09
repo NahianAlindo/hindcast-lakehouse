@@ -11,9 +11,9 @@ USER airflow
 # running that package's arbitrary setup.py/build backend at image-build
 # time.
 RUN pip install --no-cache-dir --only-binary :all: \
-    azure-storage-blob==12.30.0 \
     azure-identity==1.25.3 \
     azure-keyvault-secrets==4.11.0 \
+    azure-storage-blob==12.30.0 \
     httpx==0.28.1 \
     pydantic==2.13.4 \
     python-dotenv==1.2.2 \
