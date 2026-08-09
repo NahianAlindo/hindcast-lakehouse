@@ -44,6 +44,7 @@ def main() -> None:
         F.col("payload.wind.gust").alias("wind_gust_ms"),
         F.col("payload.clouds.all").alias("clouds_pct"),
         F.col("payload.visibility").alias("visibility_m"),
+        F.col("payload.weather")[0]["id"].alias("weather_code"),
         F.col("payload.weather")[0]["main"].alias("weather_main"),
         F.col("payload.weather")[0]["description"].alias("weather_description"),
         F.col("payload.weather")[0]["icon"].alias("weather_icon"),
@@ -61,7 +62,13 @@ def main() -> None:
         .drop("_rn")
     )
 
-    deduped.write.format("delta").mode("overwrite").save(silver_path(TABLE))
+    # overwriteSchema is safe (not a footgun) here specifically because this
+    # job is a full overwrite every run -- the table's schema *is* this
+    # file's SELECT statement, so a mismatch only ever means the code
+    # changed, which is exactly when the schema should follow.
+    deduped.write.format("delta").mode("overwrite").option(
+        "overwriteSchema", "true"
+    ).save(silver_path(TABLE))
     print(f"[{ENDPOINT}] wrote {deduped.count()} rows to {TABLE}")
     spark.stop()
 

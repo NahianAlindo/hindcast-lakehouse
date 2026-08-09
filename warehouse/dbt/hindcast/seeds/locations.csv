@@ -1,0 +1,11 @@
+location_id,name,country,lat,lon,iana_tz,personal_relevance,personal_note,climate_class,active_from
+oshawa_ca,Oshawa,CA,43.9,-78.85,America/Toronto,study,Where I study — Ontario Tech University.,Dfb,2026-08-05
+toronto_ca,Toronto,CA,43.65,-79.38,America/Toronto,travel,Nearby major city — same timezone as Oshawa; tests whether forecast skill differs at short distance.,Dfb,2026-08-05
+vancouver_ca,Vancouver,CA,49.28,-123.12,America/Vancouver,travel,Maritime + coastal-mountain climate; second Canadian timezone.,Cfb,2026-08-05
+denver_us,Denver,US,39.74,-104.99,America/Denver,travel,High-altitude continental/mountain climate; Mountain Time coverage.,BSk,2026-08-05
+new_york_us,New York,US,40.71,-74.01,America/New_York,travel,"Major maritime-influenced city; Eastern Time, different UTC offset from Toronto despite proximity.",Cfa,2026-08-05
+london_uk,London,GB,51.51,-0.13,Europe/London,travel,Maritime climate with a reputation for volatile hard-to-forecast weather — good low-forecastability-tier candidate.,Cfb,2026-08-05
+reykjavik_is,Reykjavik,IS,64.15,-21.94,Atlantic/Reykjavik,travel,Subpolar maritime; high latitude and storm-track exposure should make this the hardest location to forecast in the set.,Cfc,2026-08-05
+dubai_ae,Dubai,AE,25.2,55.27,Asia/Dubai,travel,Hot desert climate — expected to be a high-forecastability-tier contrast case against Reykjavik/London.,BWh,2026-08-05
+singapore_sg,Singapore,SG,1.35,103.82,Asia/Singapore,travel,Near-equatorial minimal seasonal temperature swing — exercises dim_date season logic at its weakest signal.,Af,2026-08-05
+sydney_au,Sydney,AU,-33.87,151.21,Australia/Sydney,travel,Southern Hemisphere anchor — seasons run opposite to every other location in this set.,Cfa,2026-08-05

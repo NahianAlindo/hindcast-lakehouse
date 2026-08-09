@@ -1,0 +1,91 @@
+version: 2
+
+models:
+  - name: dim_location
+    description: Type 1, static (docs/PLAN.md §6.4/§6.5) -- name/coordinates/timezone genuinely don't change.
+    columns:
+      - name: location_key
+        tests: [unique, not_null]
+      - name: location_id
+        tests: [unique, not_null]
+      - name: hemisphere
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["Northern", "Southern"]
+
+  - name: dim_location_regime
+    description: The one earned SCD2 mini-dimension (docs/PLAN.md §6.5) -- built from a dbt snapshot on int_location_regime_bands.
+    columns:
+      - name: location_regime_key
+        tests: [unique, not_null]
+      - name: is_current
+        tests: [not_null]
+
+  - name: dim_date
+    columns:
+      - name: date_key
+        tests: [unique, not_null]
+      - name: date_day
+        tests: [unique, not_null]
+      - name: season_northern
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["Winter", "Spring", "Summer", "Fall"]
+      - name: season_southern
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["Winter", "Spring", "Summer", "Fall"]
+
+  - name: dim_time
+    columns:
+      - name: time_key
+        tests: [unique, not_null]
+      - name: hour
+        tests: [unique, not_null]
+      - name: daypart
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["night", "dawn", "morning", "afternoon", "evening"]
+
+  - name: dim_weather_condition
+    columns:
+      - name: weather_condition_key
+        tests: [unique, not_null]
+      - name: code
+        tests: [unique, not_null]
+
+  - name: dim_lead_time_bucket
+    description: 8 rows, one per milestone hour (docs/PLAN.md §6.4) -- the analysis's primary slicer.
+    columns:
+      - name: lead_time_bucket_key
+        tests: [unique, not_null]
+      - name: milestone_hours
+        tests: [unique, not_null]
+
+  - name: dim_air_quality_band
+    columns:
+      - name: air_quality_band_key
+        tests: [unique, not_null]
+      - name: aqi
+        tests:
+          - unique
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+
+  - name: dim_pipeline_run
+    description: >
+      Audit dimension (docs/PLAN.md §6.4/§7). git_sha/git_tag/image_digest/
+      dvc_data_version/dag_run_id are honest NULL placeholders until the
+      Airflow DAGs or extractor persist that metadata somewhere queryable
+      -- see the model's own header comment for the tracked gap.
+    columns:
+      - name: pipeline_run_key
+        tests: [unique, not_null]
+      - name: run_id
+        tests: [unique, not_null]

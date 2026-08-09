@@ -1,0 +1,98 @@
+version: 2
+
+models:
+  - name: fct_weather_observation
+    description: Transaction fact, one row per (location, distinct source observation timestamp) -- docs/PLAN.md §6.1.
+    columns:
+      - name: weather_observation_key
+        tests: [unique, not_null]
+      - name: location_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_location')
+                field: location_key
+
+  - name: fct_air_quality_observation
+    description: Transaction fact, one row per (location, hour) -- docs/PLAN.md §6.1.
+    columns:
+      - name: air_quality_observation_key
+        tests: [unique, not_null]
+      - name: location_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_location')
+                field: location_key
+
+  - name: fct_forecast_issue
+    description: Transaction fact (append-only ledger), one row per (location, issued_at, valid_ts) -- docs/PLAN.md §6.1.
+    columns:
+      - name: forecast_issue_key
+        tests: [unique, not_null]
+      - name: location_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_location')
+                field: location_key
+      - name: lead_time_hours
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 120
+
+  - name: fct_forecast_slot
+    description: >
+      The flagship accumulating snapshot (docs/PLAN.md §6.2) -- one row per
+      (location, valid_timestamp_utc), rewritten in place as milestones
+      fill in and closed once an actual lands.
+    columns:
+      - name: forecast_slot_key
+        description: Uniqueness here IS the "no duplicate (location, valid_ts)" guarantee docs/PLAN.md's DQ suite calls for.
+        tests: [unique, not_null]
+      - name: location_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_location')
+                field: location_key
+      - name: slot_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["pending", "forecasting", "awaiting_actual", "closed", "closed_no_actual"]
+      - name: dq_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["ok", "sparse_forecasts", "wide_match_offset", "no_actual", "ingest_gap"]
+      - name: temp_fcst_24h
+        description: "{{ doc('measure_additivity') }}"
+
+  - name: fct_forecast_error
+    description: >
+      Derived from fct_forecast_slot by unpivot (docs/PLAN.md §6.1) -- the
+      BI-serving query surface, one row per (location, valid_ts, milestone).
+    columns:
+      - name: forecast_error_key
+        tests: [unique, not_null]
+      - name: lead_time_bucket_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_lead_time_bucket')
+                field: lead_time_bucket_key
+      - name: actual_lead_hours
+        description: "Tested to fall in [L, L+3) per docs/PLAN.md §6.3a -- never more informed than the milestone label claims."
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 123

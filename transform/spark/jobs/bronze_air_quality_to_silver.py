@@ -55,7 +55,12 @@ def main() -> None:
         .drop("_rn")
     )
 
-    deduped.write.format("delta").mode("overwrite").save(silver_path(TABLE))
+    # overwriteSchema is safe here for the same reason as
+    # bronze_current_to_silver.py: full overwrite every run means the
+    # table's schema *is* this file's SELECT statement.
+    deduped.write.format("delta").mode("overwrite").option(
+        "overwriteSchema", "true"
+    ).save(silver_path(TABLE))
     print(f"[{ENDPOINT}] wrote {deduped.count()} rows to {TABLE}")
     spark.stop()
 

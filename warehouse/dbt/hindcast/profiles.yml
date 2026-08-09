@@ -1,0 +1,47 @@
+# Committed (not in ~/.dbt/) so `dbt build --target duckdb` reproduces
+# identically for anyone who clones the repo (docs/PLAN.md §10's zero-cost
+# fallback: "the full star schema remains reproducible by anyone who clones
+# the repo"). No secrets live here -- the ADLS connection string is read
+# from AZURE_STORAGE_CONNECTION_STRING at run time (same env var the
+# extractor and WSL2 Spark dev flow already use), never hardcoded.
+hindcast:
+  target: duckdb
+  outputs:
+    duckdb:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'hindcast.duckdb') }}"
+      extensions:
+        - delta
+        - azure
+      settings:
+        # DuckDB's Azure C++ SDK transport defaults to an adapter that
+        # doesn't resolve Linux's system CA bundle (hit this live in WSL2:
+        # "Problem with the SSL CA cert" against a real ADLS read that
+        # worked fine over plain HTTPS from every other tool in this repo).
+        # curl transport doesn't have that bug.
+        azure_transport_option_type: "curl"
+      secrets:
+        # delta_scan() (delta-rs/object_store under the hood) resolves
+        # credentials via DuckDB's CREATE SECRET, not the legacy
+        # azure_storage_connection_string SETTING -- hit this live as
+        # "Account must be specified" even with that setting correctly set,
+        # since it's a different credential-resolution path from the native
+        # azure filesystem reader.
+        - type: azure
+          connection_string: "{{ env_var('AZURE_STORAGE_CONNECTION_STRING') }}"
+
+    # Not used until Phase 6 (docs/PLAN.md: Snowflake trial doesn't start
+    # until Week 6, deliberately, to not burn trial days early). Defining
+    # the target now is what "dual target from day one" (CLAUDE.md) means --
+    # the account/warehouse/etc. below don't exist yet and won't be created
+    # before then.
+    snowflake:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT', '') }}"
+      user: "{{ env_var('SNOWFLAKE_USER', '') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD', '') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'TRANSFORMER') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'HINDCAST') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'HINDCAST_XS') }}"
+      schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'MARTS') }}"
+      threads: 4

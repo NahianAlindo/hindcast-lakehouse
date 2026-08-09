@@ -1,0 +1,38 @@
+name: "hindcast"
+version: "1.0.0"
+config-version: 2
+
+profile: "hindcast"
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  hindcast:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      core:
+        +materialized: table
+        +schema: core
+      facts:
+        +materialized: table
+        +schema: facts
+
+seeds:
+  hindcast:
+    +schema: seed
+
+vars:
+  # Milestone hours the whole star schema is built around (docs/PLAN.md §6.2/§6.4)
+  # -- dim_lead_time_bucket, fct_forecast_slot's ×8 milestone columns, and
+  # int_forecast_milestone_pivot all derive from this single list.
+  milestone_hours: [3, 6, 12, 24, 48, 72, 96, 120]
+  # Half a 3-hour forecast slot (docs/PLAN.md §6.3b) -- the actual-matching
+  # tolerance window, so no observation can ever be claimed by two slots.
+  actual_match_tolerance_minutes: 90

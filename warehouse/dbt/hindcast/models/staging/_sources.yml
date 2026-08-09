@@ -1,0 +1,37 @@
+version: 2
+
+sources:
+  - name: silver
+    description: >
+      Delta tables written by the Phase 4 Spark jobs
+      (transform/spark/jobs/), read directly from ADLS via DuckDB's delta +
+      azure extensions -- no export/copy step. loader is annotated as
+      'delta' for documentation; dbt doesn't natively template
+      delta_scan('azure://...') into source(), so each staging model reads
+      the path directly and this block exists for docs/lineage and the
+      freshness checks below.
+    loader: delta
+    tables:
+      - name: obs_weather
+        description: One row per (location, source observation timestamp) -- bronze_current_to_silver.py's output.
+        loaded_at_field: source_dt
+        freshness:
+          warn_after: { count: 6, period: hour }
+          error_after: { count: 24, period: hour }
+
+      - name: obs_air_quality
+        description: One row per (location, source observation timestamp) -- bronze_air_quality_to_silver.py's output.
+        loaded_at_field: source_dt
+        freshness:
+          warn_after: { count: 6, period: hour }
+          error_after: { count: 24, period: hour }
+
+      - name: fct_forecast_issue_raw
+        description: >
+          One row per (location, issued_at, valid_ts) -- one predicted
+          timestep from one forecast API response.
+          bronze_forecast_to_silver.py's output.
+        loaded_at_field: issued_at
+        freshness:
+          warn_after: { count: 6, period: hour }
+          error_after: { count: 24, period: hour }

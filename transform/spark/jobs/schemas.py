@@ -24,6 +24,11 @@ class ObsWeatherSchema(DataFrameModel):
     feels_like_c: T.DoubleType = Field(ge=-90, le=60, nullable=True)
     humidity_pct: T.LongType = Field(ge=0, le=100, nullable=True)
     wind_deg: T.LongType = Field(ge=0, le=360, nullable=True)
+    # OWM's documented condition code range (docs/PLAN.md §6.4's
+    # dim_weather_condition, 200-804) -- needed for the surrogate-key join
+    # to that dimension; weather_main/description alone can't be joined
+    # reliably.
+    weather_code: T.LongType = Field(ge=200, le=804, nullable=True)
 
 
 class ObsAirQualitySchema(DataFrameModel):
@@ -35,6 +40,8 @@ class ForecastSchema(DataFrameModel):
     feels_like_c: T.DoubleType = Field(ge=-90, le=60, nullable=True)
     humidity_pct: T.LongType = Field(ge=0, le=100, nullable=True)
     pop: T.DoubleType = Field(ge=0, le=1, nullable=True)
+    wind_deg: T.LongType = Field(ge=0, le=360, nullable=True)
+    weather_code: T.LongType = Field(ge=200, le=804, nullable=True)
 
 
 def check(df: DataFrame, schema: type[DataFrameModel], job_name: str) -> None:

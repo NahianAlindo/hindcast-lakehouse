@@ -53,6 +53,9 @@ def main() -> None:
         F.col("timestep.main.pressure").alias("pressure_hpa"),
         F.col("timestep.main.humidity").alias("humidity_pct"),
         F.col("timestep.pop").alias("pop"),
+        F.col("timestep.wind.speed").alias("wind_speed_ms"),
+        F.col("timestep.wind.deg").alias("wind_deg"),
+        F.col("timestep.weather")[0]["id"].alias("weather_code"),
         F.col("timestep.weather")[0]["main"].alias("weather_main"),
         F.col("timestep.weather")[0]["description"].alias("weather_description"),
         F.col("timestep.weather")[0]["icon"].alias("weather_icon"),
@@ -82,6 +85,11 @@ def main() -> None:
     target_path = silver_path(TABLE)
 
     if DeltaTable.isDeltaTable(spark, target_path):
+        # Lets a MERGE add a new column (e.g. weather_code, added after this
+        # table already existed) instead of failing on schema mismatch --
+        # OSS Delta supports this despite the Databricks-flavored config
+        # name; it isn't a proprietary feature.
+        spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
         target = DeltaTable.forPath(spark, target_path)
         (
             target.alias("t")
