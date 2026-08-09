@@ -1,4 +1,17 @@
 # syntax=docker/dockerfile:1
+
+# Throwaway stage that exists for one reason: turn pyspark's PyPI sdist (it
+# ships no wheel at all -- verified against PyPI's own JSON API, not
+# guessed) into a real local .whl file via `pip wheel`, so the final stage
+# below can install it with --only-binary :all: like everything else,
+# genuinely satisfying that flag rather than carving out an exception to
+# it. The setup-script-execution risk --only-binary guards against still
+# happens once, here -- but inside a stage that never ships in the final
+# image and whose only output is the wheel file itself.
+FROM python:3.11-slim AS wheelbuilder
+RUN pip install --no-cache-dir --only-binary :all: pip==25.2
+RUN pip wheel --no-cache-dir --wheel-dir /wheels pyspark==3.5.9
+
 FROM python:3.11-slim
 
 # This base image's Debian release only ships openjdk-21/25, not 17 (which
@@ -36,28 +49,23 @@ ADD --checksum=sha256:131a6594969bc4f321d652ea2a33bc0e378ca312685ef87791b2c60b29
     https://repo1.maven.org/maven2/org/antlr/antlr4-runtime/4.9.3/antlr4-runtime-4.9.3.jar \
     org.antlr_antlr4-runtime-4.9.3.jar
 
-# pyspark ships no wheel on PyPI, only an sdist (verified against PyPI's own
-# JSON API before assuming this, not guessed) -- --only-binary :all: has
-# nothing to select for it and fails outright. Its "build" is pure Python
-# packaging (bundling the JARs pip.py already has locally), not compiling
-# untrusted C/Rust, so it's the one package here that's safe to exempt
-# rather than a real instance of the setup-script-execution risk that flag
-# guards against everywhere else. Installed first and on its own: delta-spark
-# also declares a transitive pyspark<3.6.0,>=3.5.3 dependency, and pip
-# re-resolves that under --only-binary in the same command if pyspark isn't
-# already satisfied first. Chained with `&&` into one RUN (fewer layers)
-# while keeping the two `pip install` invocations separate, since that
-# separation is what makes the exemption above actually work -- combining
-# them into a single invocation would put pyspark back under
-# --only-binary too and fail the exact way it did when this was first built.
+# pyspark's wheel comes from the wheelbuilder stage above (PyPI ships this
+# package as an sdist only), not from PyPI directly -- so this single
+# --only-binary :all: install genuinely doesn't build anything from source,
+# rather than carrying a documented exception for one package. delta-spark
+# also declares a transitive pyspark<3.6.0,>=3.5.3 dependency; pip is
+# satisfied by the local wheel already being on disk, so it never needs to
+# re-resolve pyspark from PyPI at all.
+COPY --from=wheelbuilder /wheels /wheels
 RUN pip install --no-cache-dir --only-binary :all: pip==25.2 \
-    && pip install --no-cache-dir pyspark==3.5.9 \
-    && pip install --no-cache-dir --only-binary :all: \
+    && pip install --no-cache-dir --only-binary :all: --find-links /wheels \
+       pyspark==3.5.9 \
        azure-identity==1.25.3 \
        azure-keyvault-secrets==4.11.0 \
        delta-spark==3.2.1 \
        pandas==2.3.3 \
-       pandera[pyspark]==0.32.1
+       pandera[pyspark]==0.32.1 \
+    && rm -rf /wheels
 
 WORKDIR /opt/transform
 COPY transform/spark/jobs /opt/transform/jobs

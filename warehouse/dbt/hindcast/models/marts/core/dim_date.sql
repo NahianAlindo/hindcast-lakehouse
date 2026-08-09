@@ -26,6 +26,8 @@ season_names as (
         as t(season_index, season_name)
 ),
 
+{% set date_col = 'indexed.date_day' %}
+
 indexed as (
     select
         days.date_day,
@@ -41,7 +43,7 @@ indexed as (
 )
 
 select
-    {{ dbt_utils.generate_surrogate_key(['indexed.date_day']) }} as date_key,
+    {{ dbt_utils.generate_surrogate_key([date_col]) }} as date_key,
     indexed.date_day,
     extract(year from indexed.date_day)    as year,
     extract(month from indexed.date_day)   as month,
@@ -49,8 +51,8 @@ select
     extract(doy from indexed.date_day)     as day_of_year,
     extract(week from indexed.date_day)    as iso_week,
     extract(dow from indexed.date_day)     as day_of_week,   -- 0=Sunday
-    {{ day_name('indexed.date_day') }}     as day_name,
-    {{ month_name('indexed.date_day') }}   as month_name,
+    {{ day_name(date_col) }}     as day_name,
+    {{ month_name(date_col) }}   as month_name,
     extract(dow from indexed.date_day) in (0, 6) as is_weekend,
     sn_north.season_name as season_northern,
     sn_south.season_name as season_southern
