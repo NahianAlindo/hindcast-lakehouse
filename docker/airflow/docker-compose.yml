@@ -26,6 +26,15 @@ x-airflow-common-env: &airflow-common-env
   # the base image) is what actually honors the Key-Vault-sourced admin
   # password below.
   AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+  # Airflow 3.x's task subprocesses (even under LocalExecutor, spawned by the
+  # scheduler) call back to the API server over HTTP for their execution
+  # context instead of hitting the metadata DB directly. Defaults to
+  # http://localhost:8080/execution/, which fails outright here -- apiserver
+  # is a separate container, not the same process as the scheduler. Point it
+  # at the apiserver container's Compose-network service name instead. Hit
+  # this live as every task failing with `httpcore.ConnectError: [Errno 111]
+  # Connection refused` and a SIGKILL a few seconds later.
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
   # Pre-built (with the password already percent-encoded) in deploy.sh, not
   # assembled here from ${POSTGRES_PASSWORD} directly -- a raw special
   # character in the password corrupts URL parsing (hit this live: Airflow's

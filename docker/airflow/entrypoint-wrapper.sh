@@ -24,5 +24,7 @@ export AZURE_STORAGE_CONNECTION_STRING
 AZURE_STORAGE_CONNECTION_STRING="$(fetch_secret storage-connection-string)"
 export AIRFLOW__CORE__FERNET_KEY
 AIRFLOW__CORE__FERNET_KEY="$(fetch_secret airflow-fernet-key)"
+export AIRFLOW__API_AUTH__JWT_SECRET
+AIRFLOW__API_AUTH__JWT_SECRET="$(fetch_secret airflow-jwt-secret)"
 
 exec /usr/bin/dumb-init -- /entrypoint "$@"

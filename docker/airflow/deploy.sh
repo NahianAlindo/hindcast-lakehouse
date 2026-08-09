@@ -50,5 +50,12 @@ unset POSTGRES_PASSWORD POSTGRES_PASSWORD_URLENC AIRFLOW_ADMIN_PASSWORD AIRFLOW_
 echo "==> Bringing the stack up (build + up -d)"
 ssh "${VM_HOST}" "cd ${REMOTE_DIR}/docker/airflow && sudo docker compose up -d --build"
 
+echo "==> Ensuring the forecast DAG's serialization pool exists"
+# 1 slot: serializes owm_forecast_ingest's mapped per-location tasks so they
+# don't race the shared dedup-state blob (see run_forecast.fetch_and_land's
+# docstring). Idempotent -- `pools set` just updates the pool if it already
+# exists, safe to run on every deploy.
+ssh "${VM_HOST}" "sudo docker exec hindcast-airflow-scheduler-1 airflow pools set forecast_serial 1 'Serializes owm_forecast_ingest per-location tasks to avoid racing the shared dedup-state blob'"
+
 echo "==> Done. Tunnel the API server with:"
 echo "    ssh -L 8080:localhost:8080 ${VM_HOST}"

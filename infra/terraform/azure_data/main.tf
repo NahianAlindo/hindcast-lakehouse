@@ -150,6 +150,23 @@ resource "azurerm_key_vault_secret" "airflow_fernet_key" {
   }
 }
 
+# Signs/validates the internal JWTs Airflow 3.x's task subprocesses use to
+# authenticate to the API server (a separate mechanism from the Fernet key
+# above). Must be byte-identical across every component (scheduler,
+# api-server, dag-processor, triggerer) or task execution fails with
+# "Invalid auth token" -- hit this live: left unset, each container
+# auto-generates its own value independently, so no two ever matched.
+resource "azurerm_key_vault_secret" "airflow_jwt_secret" {
+  name         = "airflow-jwt-secret"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # Airflow's web UI admin login. Unlike owm_api_key/storage_connection_string/
 # airflow_fernet_key above (fetched at container runtime via Managed Identity),
 # this is consumed at docker-compose render time via a VM-local .env file
