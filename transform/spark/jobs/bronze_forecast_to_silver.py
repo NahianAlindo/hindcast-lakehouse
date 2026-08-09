@@ -61,14 +61,21 @@ def main() -> None:
         (F.col("valid_ts").cast("long") - F.col("issued_at").cast("long")) / 60,
     )
 
-    # Hard-fail cross-field check: a violation here would silently poison
-    # every lead-time bucket downstream (docs/PLAN.md Phase 4).
+    # OWM's forecast list is keyed to fixed 3-hour clock boundaries (00:00,
+    # 03:00, ... UTC). Polling in the first few minutes after a boundary can
+    # return a list whose first slot is the boundary that just passed --
+    # already a few minutes in the past relative to issued_at (confirmed
+    # live: a real oshawa_ca poll at 00:03:28 UTC still had a 00:00:00 UTC
+    # slot). That's a genuine, if rare, OWM API quirk, not a computation
+    # bug -- and a zero/negative lead-time row is meaningless for the
+    # lead-time-accuracy analysis regardless, so drop rather than hard-fail.
     bad_rows = flat.where(F.col("valid_ts") <= F.col("issued_at")).count()
     if bad_rows:
-        raise ValueError(
-            f"[{ENDPOINT}] {bad_rows} rows have valid_ts <= issued_at -- "
-            "lead-time computation would be wrong for these; refusing to write."
+        print(
+            f"[{ENDPOINT}] dropping {bad_rows} row(s) with valid_ts <= issued_at "
+            "(stale boundary slot in OWM's forecast list)"
         )
+        flat = flat.where(F.col("valid_ts") > F.col("issued_at"))
 
     check(flat, ForecastSchema, f"bronze_{ENDPOINT}_to_silver")
 

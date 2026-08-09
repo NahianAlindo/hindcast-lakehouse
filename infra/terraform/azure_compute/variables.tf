@@ -16,9 +16,9 @@ variable "project" {
 }
 
 variable "vm_size" {
-  description = "Standard_B2als_v2 (4GB RAM, x64) -- Phase 3 resize up from Standard_B2ats_v2 (1024 MB, too tight for Airflow's own stated 4GB minimum). Same x64 architecture as the original size, so this was a safe in-place resize -- no VM recreation, no data risk. Worth knowing: `az vm list-skus` reports this size as NotAvailableForSubscription in westus2, but the resize succeeded anyway -- the same reported-vs-actual availability gap Phase 1 hit with the original VM creation. A first attempt at this resize wrongly targeted Standard_B2pls_v2 (ARM64) assuming it shared an architecture with the original size; Azure correctly rejected that with PropertyChangeNotAllowed since cross-architecture resize isn't possible -- worth remembering before assuming any other size's architecture from its name alone."
+  description = "Standard_B4als_v2 (4 vCPU, 8GB RAM, x64) -- Phase 4 resize up from Standard_B2als_v2 (2 vCPU, 4GB). Running bronze_to_silver_spark's three independent flatten jobs in true parallel (current/air_quality/forecast, no dependency edges between them) oversubscribed 2 vCPUs badly enough to hang the guest OS itself -- SSH couldn't complete its banner exchange and even Azure's out-of-band VM-agent run-command channel stalled for minutes, while the VM stayed 'running' at the control-plane level the whole time (confirming in-guest CPU starvation, not an Azure-side or crashed-VM problem). Same x64 architecture as the prior size, so another safe in-place resize -- no VM recreation, no data risk, and issuing it doesn't require the hung guest OS to cooperate (resize is a control-plane operation)."
   type        = string
-  default     = "Standard_B2als_v2"
+  default     = "Standard_B4als_v2"
 }
 
 variable "admin_username" {

@@ -107,6 +107,20 @@ services:
     volumes:
       - ../../orchestration/airflow/dags:/opt/airflow/dags
       - airflow-logs:/opt/airflow/logs
+      # LocalExecutor runs task subprocesses inside this container, and
+      # bronze_to_silver_spark's tasks use DockerOperator to run one-shot
+      # Spark containers -- this is what lets `docker run` from inside here
+      # actually reach the VM's real Docker daemon (sibling containers, not
+      # nested Docker-in-Docker).
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Airflow's container runs as a non-root user (UID 50000) by design; a
+    # bind-mounted socket doesn't grant access on its own. Hit this live as
+    # PermissionError(13) connecting to the socket -- group_add puts the
+    # container's user in the host's actual `docker` group (GID checked via
+    # `stat -c %g /var/run/docker.sock` on the VM, not assumed to be the
+    # conventional 999).
+    group_add:
+      - "988"
     command: scheduler
 
   airflow-dag-processor:
