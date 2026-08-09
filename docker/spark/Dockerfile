@@ -67,12 +67,12 @@ ENV SPARK_MASTER=local[*]
 ENV PYTHONPATH=/opt/transform/jobs
 
 COPY docker/spark/entrypoint-wrapper.sh /entrypoint-wrapper.sh
-RUN chmod +x /entrypoint-wrapper.sh
 
 # Runs as a dedicated non-root user -- the base python image defaults to
 # root, and nothing this container does (fetching a secret over HTTPS,
 # running a short-lived Spark job, exiting) needs elevated privileges.
-RUN useradd --create-home --uid 1000 sparkuser \
+RUN chmod +x /entrypoint-wrapper.sh \
+    && useradd --create-home --uid 1000 sparkuser \
     && chown -R sparkuser:sparkuser /opt/spark-jars /opt/transform
 USER sparkuser
 

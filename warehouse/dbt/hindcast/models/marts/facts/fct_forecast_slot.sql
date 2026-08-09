@@ -20,6 +20,8 @@
 {% set milestones = var('milestone_hours') %}
 {% set tolerance_minutes = var('actual_match_tolerance_minutes') %}
 {% set tolerance_interval = "interval '" ~ tolerance_minutes ~ " minutes'" %}
+{% set status_closed = "'closed'" %}
+{% set status_closed_no_actual = "'closed_no_actual'" %}
 
 with pivoted as (
     select
@@ -127,9 +129,9 @@ with_status as (
         -- can actually start filling in, so it's meaningfully more "in
         -- progress" than a slot that's only been seen at 96h/120h lead.
         case
-            when j.actual_obs_ts is not null then 'closed'
+            when j.actual_obs_ts is not null then {{ status_closed }}
             when j.valid_ts_utc < current_timestamp - {{ tolerance_interval }}
-                then 'closed_no_actual'
+                then {{ status_closed_no_actual }}
             when j.valid_ts_utc <= current_timestamp then 'awaiting_actual'
             when j.valid_ts_utc - current_timestamp <= interval '24 hours' then 'forecasting'
             else 'pending'
@@ -198,7 +200,7 @@ select
     ws.revision_count,
     ws.distinct_model_runs,
     ws.slot_status,
-    case when ws.slot_status in ('closed', 'closed_no_actual') then ws.last_forecast_at end as slot_closed_at,
+    case when ws.slot_status in ({{ status_closed }}, {{ status_closed_no_actual }}) then ws.last_forecast_at end as slot_closed_at,
     ws.dq_status,
 
     {% for h in milestones -%}
@@ -240,6 +242,6 @@ where not exists (
     select 1 from {{ this }} t
     where t.location_id = ws.location_id
       and t.valid_ts_utc = ws.valid_ts_utc
-      and t.slot_status = 'closed'
+      and t.slot_status = {{ status_closed }}
 )
 {% endif %}
