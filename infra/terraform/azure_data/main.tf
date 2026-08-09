@@ -207,19 +207,3 @@ resource "azurerm_managed_disk" "postgres_data" {
     prevent_destroy = true
   }
 }
-
-# Admin password for the VM-hosted Postgres container. Generated and stored
-# here (Terraform is the source of truth for it either way, since it's the
-# thing generating it); azure_compute reads it back via remote state to bake
-# into the VM's Docker Compose config.
-resource "random_password" "postgres_admin" {
-  length  = 24
-  special = true
-}
-
-resource "azurerm_key_vault_secret" "postgres_admin_password" {
-  name         = "postgres-admin-password"
-  value        = random_password.postgres_admin.result
-  key_vault_id = azurerm_key_vault.this.id
-  depends_on   = [azurerm_role_assignment.kv_admin_self]
-}
