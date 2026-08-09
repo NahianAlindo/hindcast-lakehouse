@@ -212,6 +212,44 @@ resource "azurerm_key_vault_secret" "databricks_token" {
   }
 }
 
+# Phase 5 Week 6: Snowflake credentials for dbt's snowflake target and
+# load_into_snowflake.py's COPY INTO. Same out-of-band pattern as the
+# Databricks secrets above -- account/user aren't sensitive on their own,
+# but tracked here anyway for one consistent secret-fetch mechanism at
+# runtime (docker/dbt/entrypoint-wrapper.sh) rather than a special case.
+resource "azurerm_key_vault_secret" "snowflake_account" {
+  name         = "snowflake-account"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "snowflake_user" {
+  name         = "snowflake-user"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "snowflake_password" {
+  name         = "snowflake-password"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # Airflow's web UI admin login. Unlike owm_api_key/storage_connection_string/
 # airflow_fernet_key above (fetched at container runtime via Managed Identity),
 # this is consumed at docker-compose render time via a VM-local .env file

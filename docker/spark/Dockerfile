@@ -67,6 +67,7 @@ RUN pip install --no-cache-dir --only-binary :all: pip==25.2 \
        pandera[pyspark]==0.32.1 \
        pyspark==3.5.9 \
        requests==2.34.2 \
+       snowflake-connector-python==4.7.2 \
     && rm -rf /wheels
 
 WORKDIR /opt/transform
@@ -78,6 +79,7 @@ COPY transform/spark/jobs /opt/transform/jobs
 # session builder those jobs already import from here).
 COPY warehouse/databricks/export_silver_snapshot.py /opt/transform/jobs/
 COPY warehouse/databricks/load_into_databricks.py /opt/transform/jobs/
+COPY warehouse/snowflake/load_into_snowflake.py /opt/transform/jobs/
 
 ENV SPARK_ADLS_JARS_DIR=/opt/spark-jars
 ENV SPARK_MASTER=local[*]

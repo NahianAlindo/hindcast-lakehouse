@@ -19,7 +19,6 @@
 
 {% set milestones = var('milestone_hours') %}
 {% set tolerance_minutes = var('actual_match_tolerance_minutes') %}
-{% set tolerance_interval = "interval '" ~ tolerance_minutes ~ " minutes'" %}
 {% set status_closed = "'closed'" %}
 {% set status_closed_no_actual = "'closed_no_actual'" %}
 
@@ -128,12 +127,19 @@ with_status as (
         -- split at 24h out: inside 24h is the window every milestone <=24h
         -- can actually start filling in, so it's meaningfully more "in
         -- progress" than a slot that's only been seen at 96h/120h lead.
+        -- Raw `current_timestamp - interval '...'` arithmetic doesn't
+        -- portable across engines (Snowflake rejects comparing the INTERVAL
+        -- DAY TO SECOND that timestamp subtraction produces against a bare
+        -- interval literal -- hit this live as "Invalid argument types for
+        -- function '<='"), so every one of these is expressed as a minute
+        -- count via the same datediff_minutes() macro int_observation_
+        -- slot_matched.sql already uses, not interval literals.
         case
             when j.actual_obs_ts is not null then {{ status_closed }}
-            when j.valid_ts_utc < current_timestamp - {{ tolerance_interval }}
+            when {{ datediff_minutes('current_timestamp', 'j.valid_ts_utc') }} > {{ tolerance_minutes }}
                 then {{ status_closed_no_actual }}
             when j.valid_ts_utc <= current_timestamp then 'awaiting_actual'
-            when j.valid_ts_utc - current_timestamp <= interval '24 hours' then 'forecasting'
+            when {{ datediff_minutes('j.valid_ts_utc', 'current_timestamp') }} <= 1440 then 'forecasting'
             else 'pending'
         end as slot_status,
         -- dq_status priority: a missing actual past its window is the most
@@ -142,7 +148,7 @@ with_status as (
         -- enough that every milestone <= its age should exist).
         case
             when j.actual_obs_ts is null
-                 and j.valid_ts_utc < current_timestamp - {{ tolerance_interval }}
+                 and {{ datediff_minutes('current_timestamp', 'j.valid_ts_utc') }} > {{ tolerance_minutes }}
                 then 'no_actual'
             when j.match_offset_minutes is not null and abs(j.match_offset_minutes) > {{ (tolerance_minutes / 2) | int }}
                 then 'wide_match_offset'

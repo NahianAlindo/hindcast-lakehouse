@@ -1,5 +1,6 @@
-"""silver/<table> (Delta) -> dbx-export/<table> (plain Parquet, single clean
-snapshot) -- the pre-step before load_into_databricks.py's COPY INTO.
+"""silver/<table> (Delta) -> <EXPORT_CONTAINER>/<table> (plain Parquet,
+single clean snapshot) -- the pre-step before load_into_databricks.py's or
+load_into_snowflake.py's COPY INTO.
 
 Why this step exists and isn't just "COPY INTO straight from the Delta
 table's own directory": Delta's overwrite/merge writes don't delete
@@ -13,17 +14,25 @@ silently multiply-count that stale data. Spark's own `.format("delta")`
 reader is transaction-log-aware, so exporting through it first guarantees
 exactly the current logical rows land in the clean export.
 
-Same three tables Phase 6's Snowflake COPY INTO reads (docs/PLAN.md):
+Same three tables Phase 5 Week 6's Snowflake COPY INTO reads (docs/PLAN.md):
 obs_weather, obs_air_quality, fct_forecast_issue_raw. Not
 fct_forecast_milestones -- that Spark-computed table isn't part of the
 star-schema source layer dbt reads from (see warehouse/dbt/hindcast's
 _sources.yml).
+
+Also run, unmodified, by the silver_to_snowflake DAG -- EXPORT_CONTAINER is
+an env var (not a second copy of this file) because the only real
+difference between the two callers is where the snapshot lands: `dbx-export`
+for the Databricks side-track (@daily, demo-only), the Terraform-managed
+`exports` container for Snowflake (@hourly, the critical-path warehouse).
 """
+
+import os
 
 from spark_session import build_spark_session, silver_path
 
 TABLES = ["obs_weather", "obs_air_quality", "fct_forecast_issue_raw"]
-EXPORT_CONTAINER = "dbx-export"
+EXPORT_CONTAINER = os.environ.get("EXPORT_CONTAINER", "dbx-export")
 STORAGE_ACCOUNT = "sthindcastjlbpfz"
 
 

@@ -16,11 +16,12 @@
     -- Snowflake COPY INTO will -- this reads that already-loaded copy.
     {{ target.catalog }}.hindcast_silver.{{ table_name }}
   {%- elif target.type == 'snowflake' -%}
-    {{ exceptions.raise_compiler_error(
-      "silver_delta_scan(): Snowflake target reads RAW via the external stage's "
-      "COPY INTO tables (docs/PLAN.md Phase 6), not delta_scan directly -- "
-      "staging models need a Snowflake-specific source() once that stage exists."
-    ) }}
+    -- warehouse/snowflake/load_into_snowflake.py COPY INTOs the same three
+    -- silver tables (same export_silver_snapshot.py pre-step as Databricks,
+    -- different landing spot) into HINDCAST.RAW on the silver_to_snowflake
+    -- DAG's @hourly cadence -- this reads that already-loaded copy, exactly
+    -- like the Databricks branch above reads workspace.hindcast_silver.
+    {{ target.database }}.RAW.{{ table_name }}
   {%- else -%}
     {{ exceptions.raise_compiler_error("silver_delta_scan(): unsupported target " ~ target.type) }}
   {%- endif -%}

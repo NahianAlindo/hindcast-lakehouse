@@ -20,14 +20,22 @@ print(client.get_secret('${secret_name}').value)
 export AZURE_STORAGE_ACCOUNT_KEY
 AZURE_STORAGE_ACCOUNT_KEY="$(fetch_secret storage-account-key)"
 
-# Only load_into_databricks.py needs Databricks credentials -- fetched
-# conditionally so every other job here doesn't pay for a Key Vault round
-# trip it has no use for.
+# Only load_into_databricks.py / load_into_snowflake.py need their
+# respective warehouse credentials -- fetched conditionally so every other
+# job here (the bronze->silver jobs, export_silver_snapshot.py) doesn't pay
+# for a Key Vault round trip it has no use for.
 if [[ "$1" = "load_into_databricks.py" ]]; then
   export DATABRICKS_HOST
   DATABRICKS_HOST="$(fetch_secret databricks-host)"
   export DATABRICKS_TOKEN
   DATABRICKS_TOKEN="$(fetch_secret databricks-token)"
+elif [[ "$1" = "load_into_snowflake.py" ]]; then
+  export SNOWFLAKE_ACCOUNT
+  SNOWFLAKE_ACCOUNT="$(fetch_secret snowflake-account)"
+  export SNOWFLAKE_USER
+  SNOWFLAKE_USER="$(fetch_secret snowflake-user)"
+  export SNOWFLAKE_PASSWORD
+  SNOWFLAKE_PASSWORD="$(fetch_secret snowflake-password)"
 fi
 
 exec python "/opt/transform/jobs/$1"

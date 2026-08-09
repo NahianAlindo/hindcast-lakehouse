@@ -18,9 +18,11 @@ one's actual output existing:
      near-identical one for one small script) -- generates a short-lived
      SAS token and COPY INTOs those snapshots into Databricks-native Delta
      tables via the SQL Statement Execution API.
-  3. hindcast-dbt:local's default entrypoint -- `dbt build --target
-     databricks`, rebuilding the full star schema against what #2 just
-     loaded.
+  3. hindcast-dbt:local, given "databricks" as its command -- `dbt build
+     --target databricks`, rebuilding the full star schema against what #2
+     just loaded. (silver_to_snowflake's own dbt task runs the same image
+     with "snowflake" instead -- one image, target picked at `docker run`
+     time, docs/PLAN.md Phase 8.)
 
 Only #1 needs the shared spark_jobs pool (docker-compose's actual VM only
 has 4 vCPUs, and bronze_to_silver_spark's own tasks already share this same
@@ -77,6 +79,7 @@ def databricks_sync():
     dbt_build = DockerOperator(
         task_id="dbt_build_databricks",
         image=DBT_IMAGE,
+        command="databricks",
         docker_url=DOCKER_SOCKET_URL,
         auto_remove="success",
         mount_tmp_dir=False,

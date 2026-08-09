@@ -6,13 +6,18 @@
 -- fct_forecast_slot: valid_time_utc_key and valid_time_local_key --
 -- "was the afternoon forecast worse?" is a *local* question.
 with hours as (
-    select cast(h as int) as hour from range(0, 24) as t(h)
+    select cast(h as int) as hour from {{ hour_series() }}
 )
 
 select
     {{ dbt_utils.generate_surrogate_key(['hour']) }} as time_key,
     hour,
-    hour / 3 * 3 as three_hour_slot,
+    -- floor()+cast, not `hour / 3 * 3`: DuckDB's `/` between integers is
+    -- true (floating-point) division, not floor division (same gotcha
+    -- dim_date's season_index hit) -- the naive formula silently returned
+    -- `hour` unchanged for every row instead of flooring to the 8 daily
+    -- 3-hour boundaries (0,3,6,...,21), verified live against all 24 hours.
+    cast(floor(hour / 3.0) * 3 as int) as three_hour_slot,
     case
         when hour between 21 and 23 or hour between 0 and 4 then 'night'
         when hour between 5 and 6   then 'dawn'
