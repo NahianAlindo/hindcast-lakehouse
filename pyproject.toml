@@ -13,4 +13,5 @@ dependencies = [
     "delta-spark==3.2.1",
     "pandera[pyspark]>=0.32.1",
     "pandas<3",
+    "duckdb>=1.1.3",
 ]
