@@ -18,10 +18,22 @@ name: hindcast
 
 x-airflow-common-env: &airflow-common-env
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
-  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://hindcast_admin:${POSTGRES_PASSWORD}@postgres/airflow
+  # Airflow 3.x defaults to SimpleAuthManager, which ignores
+  # _AIRFLOW_WWW_USER_CREATE/_AIRFLOW_WWW_USER_PASSWORD entirely and instead
+  # generates its own random admin password on every fresh init, stored in
+  # plaintext and printed to container logs -- Airflow's own startup warning
+  # says as much ("not for production"). FabAuthManager (already bundled in
+  # the base image) is what actually honors the Key-Vault-sourced admin
+  # password below.
+  AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+  # Pre-built (with the password already percent-encoded) in deploy.sh, not
+  # assembled here from ${POSTGRES_PASSWORD} directly -- a raw special
+  # character in the password corrupts URL parsing (hit this live: Airflow's
+  # config validator raised "ValueError: Invalid IPv6 URL" on startup).
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_SQL_ALCHEMY_CONN}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
-  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "60"
+  AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: "60"
 
 services:
   postgres:
