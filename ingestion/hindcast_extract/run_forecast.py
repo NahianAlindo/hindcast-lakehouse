@@ -10,9 +10,11 @@ so two polls 3h apart can return the same underlying model run -- recorded,
 not filtered, since knowing the forecast *didn't* update is itself a finding
 (docs/PLAN.md §5 Phase 2).
 
-Cadence: every 3 hours. Run by hand, GitHub Actions accrual-fallback, or a
-systemd timer for now; Airflow's `owm_forecast_ingest` DAG takes over in
-Phase 3.
+Cadence: every 3 hours. Run standalone (python run_forecast.py), via GitHub
+Actions accrual-fallback, or -- Phase 3 -- one task per location, dynamically
+mapped, in Airflow's `owm_forecast_ingest` DAG. fetch_and_land() is the
+per-location unit both paths call; main() is a thin loop over it for
+standalone/CLI use.
 """
 
 import hashlib
@@ -29,44 +31,27 @@ from state import read_last_forecast_hashes, write_last_forecast_hashes
 ENDPOINT = "forecast"
 
 
-def main() -> None:
-    run_id = uuid.uuid4().hex[:12]
-    locations = load_locations()
-    last_hashes = read_last_forecast_hashes()
-    landed = 0
-    new_model_run_count = 0
+def fetch_and_land(loc: dict, run_id: str) -> tuple[bool, bool]:
+    """Fetch the forecast for one location and land it. Returns (landed, is_new_model_run).
 
-    for loc in locations:
-        requested_at = datetime.now(timezone.utc)
-        response = get(
-            "/data/2.5/forecast",
-            {"lat": loc["lat"], "lon": loc["lon"], "units": "metric"},
-        )
-        payload = response.json() if response.status_code == 200 else {"error": response.text}
+    Reads and writes this location's dedup-state entry directly rather than
+    batching across all locations, so this is safe to call independently per
+    mapped Airflow task instance. That does mean two truly concurrent calls
+    could race on the shared state blob (each reads the same snapshot, last
+    write wins) -- Airflow's owm_forecast_ingest DAG avoids this by running
+    its mapped tasks through a dedicated 1-slot pool rather than in parallel,
+    trading the full parallelism dynamic task mapping would otherwise give
+    for a state model that stays simple. Standalone/CLI use (main(), below)
+    is single-threaded already and was never at risk.
+    """
+    requested_at = datetime.now(timezone.utc)
+    response = get(
+        "/data/2.5/forecast",
+        {"lat": loc["lat"], "lon": loc["lon"], "units": "metric"},
+    )
+    payload = response.json() if response.status_code == 200 else {"error": response.text}
 
-        if response.status_code != 200:
-            land_bronze(
-                endpoint=ENDPOINT,
-                location_id=loc["location_id"],
-                requested_at=requested_at,
-                http_status=response.status_code,
-                url_redacted=str(response.url).split("appid=")[0] + "appid=***",
-                payload=payload,
-                run_id=run_id,
-            )
-            print(f"[{ENDPOINT}] {loc['location_id']} -> HTTP {response.status_code}")
-            continue
-
-        is_valid, validation_error = validate(ENDPOINT, payload)
-        if not is_valid:
-            print(f"[{ENDPOINT}] {loc['location_id']} -> validation failed (landing anyway): {validation_error}")
-
-        payload_hash = hashlib.sha256(json.dumps(payload).encode()).hexdigest()
-        is_new_model_run = last_hashes.get(loc["location_id"]) != payload_hash
-        last_hashes[loc["location_id"]] = payload_hash
-        if is_new_model_run:
-            new_model_run_count += 1
-
+    if response.status_code != 200:
         land_bronze(
             endpoint=ENDPOINT,
             location_id=loc["location_id"],
@@ -75,17 +60,52 @@ def main() -> None:
             url_redacted=str(response.url).split("appid=")[0] + "appid=***",
             payload=payload,
             run_id=run_id,
-            is_new_model_run=is_new_model_run,
-            validation_error=validation_error,
         )
-        landed += 1
-        n_steps = len(payload.get("list", []))
-        print(
-            f"[{ENDPOINT}] {loc['location_id']} -> {n_steps} timesteps, "
-            f"new_model_run={is_new_model_run}, issued_at={requested_at.isoformat()}"
-        )
+        print(f"[{ENDPOINT}] {loc['location_id']} -> HTTP {response.status_code}")
+        return False, False
 
+    is_valid, validation_error = validate(ENDPOINT, payload)
+    if not is_valid:
+        print(f"[{ENDPOINT}] {loc['location_id']} -> validation failed (landing anyway): {validation_error}")
+
+    payload_hash = hashlib.sha256(json.dumps(payload).encode()).hexdigest()
+    last_hashes = read_last_forecast_hashes()
+    is_new_model_run = last_hashes.get(loc["location_id"]) != payload_hash
+    last_hashes[loc["location_id"]] = payload_hash
     write_last_forecast_hashes(last_hashes)
+
+    land_bronze(
+        endpoint=ENDPOINT,
+        location_id=loc["location_id"],
+        requested_at=requested_at,
+        http_status=response.status_code,
+        url_redacted=str(response.url).split("appid=")[0] + "appid=***",
+        payload=payload,
+        run_id=run_id,
+        is_new_model_run=is_new_model_run,
+        validation_error=validation_error,
+    )
+    n_steps = len(payload.get("list", []))
+    print(
+        f"[{ENDPOINT}] {loc['location_id']} -> {n_steps} timesteps, "
+        f"new_model_run={is_new_model_run}, issued_at={requested_at.isoformat()}"
+    )
+    return True, is_new_model_run
+
+
+def main() -> None:
+    run_id = uuid.uuid4().hex[:12]
+    locations = load_locations()
+    landed = 0
+    new_model_run_count = 0
+
+    for loc in locations:
+        ok, is_new_model_run = fetch_and_land(loc, run_id)
+        if ok:
+            landed += 1
+            if is_new_model_run:
+                new_model_run_count += 1
+
     new_model_run_ratio = new_model_run_count / landed if landed else 0.0
     print(
         f"[{ENDPOINT}] landed {landed}/{len(locations)} locations, "
