@@ -13,6 +13,7 @@ import os
 
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
+from schemas import ObsWeatherSchema, check
 from spark_session import bronze_path, build_spark_session, silver_path
 
 ENDPOINT = "current"
@@ -48,6 +49,8 @@ def main() -> None:
         F.col("payload.weather")[0]["icon"].alias("weather_icon"),
         F.col("payload_sha256"),
     )
+
+    check(flat, ObsWeatherSchema, f"bronze_{ENDPOINT}_to_silver")
 
     dedup_window = Window.partitionBy("location_id", "source_dt").orderBy(
         F.col("requested_at").asc()

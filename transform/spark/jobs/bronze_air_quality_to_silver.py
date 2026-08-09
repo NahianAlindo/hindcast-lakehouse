@@ -13,6 +13,7 @@ import os
 
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
+from schemas import ObsAirQualitySchema, check
 from spark_session import bronze_path, build_spark_session, silver_path
 
 ENDPOINT = "air_quality"
@@ -42,6 +43,8 @@ def main() -> None:
         item["components"]["nh3"].alias("nh3"),
         F.col("payload_sha256"),
     )
+
+    check(flat, ObsAirQualitySchema, f"bronze_{ENDPOINT}_to_silver")
 
     dedup_window = Window.partitionBy("location_id", "source_dt").orderBy(
         F.col("requested_at").asc()

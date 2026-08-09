@@ -19,6 +19,7 @@ import os
 
 from delta.tables import DeltaTable
 from pyspark.sql import functions as F
+from schemas import ForecastSchema, check
 from spark_session import bronze_path, build_spark_session, silver_path
 
 ENDPOINT = "forecast"
@@ -68,6 +69,8 @@ def main() -> None:
             f"[{ENDPOINT}] {bad_rows} rows have valid_ts <= issued_at -- "
             "lead-time computation would be wrong for these; refusing to write."
         )
+
+    check(flat, ForecastSchema, f"bronze_{ENDPOINT}_to_silver")
 
     target_path = silver_path(TABLE)
 
