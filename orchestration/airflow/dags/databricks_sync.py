@@ -43,6 +43,7 @@ from airflow.sdk import dag
 
 SPARK_IMAGE = "hindcast-spark:local"
 DBT_IMAGE = "hindcast-dbt:local"
+DOCKER_SOCKET_URL = "unix://var/run/docker.sock"
 
 
 @dag(
@@ -58,7 +59,7 @@ def databricks_sync():
         task_id="export_silver_snapshot",
         image=SPARK_IMAGE,
         command="export_silver_snapshot.py",
-        docker_url="unix://var/run/docker.sock",
+        docker_url=DOCKER_SOCKET_URL,
         auto_remove="success",
         mount_tmp_dir=False,
         pool="spark_jobs",
@@ -68,7 +69,7 @@ def databricks_sync():
         task_id="load_into_databricks",
         image=SPARK_IMAGE,
         command="load_into_databricks.py",
-        docker_url="unix://var/run/docker.sock",
+        docker_url=DOCKER_SOCKET_URL,
         auto_remove="success",
         mount_tmp_dir=False,
     )
@@ -76,7 +77,7 @@ def databricks_sync():
     dbt_build = DockerOperator(
         task_id="dbt_build_databricks",
         image=DBT_IMAGE,
-        docker_url="unix://var/run/docker.sock",
+        docker_url=DOCKER_SOCKET_URL,
         auto_remove="success",
         mount_tmp_dir=False,
     )

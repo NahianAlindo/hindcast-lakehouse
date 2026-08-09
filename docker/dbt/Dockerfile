@@ -8,10 +8,10 @@ FROM python:3.11-slim
 # not dbt itself.
 RUN pip install --no-cache-dir --only-binary :all: pip==25.2 \
     && pip install --no-cache-dir --only-binary :all: \
-       dbt-core==1.12.0 \
-       dbt-databricks==1.10.9 \
        azure-identity==1.25.3 \
-       azure-keyvault-secrets==4.11.0
+       azure-keyvault-secrets==4.11.0 \
+       dbt-core==1.12.0 \
+       dbt-databricks==1.10.9
 
 WORKDIR /opt/dbt/hindcast
 COPY warehouse/dbt/hindcast /opt/dbt/hindcast

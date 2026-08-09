@@ -59,13 +59,13 @@ ADD --checksum=sha256:131a6594969bc4f321d652ea2a33bc0e378ca312685ef87791b2c60b29
 COPY --from=wheelbuilder /wheels /wheels
 RUN pip install --no-cache-dir --only-binary :all: pip==25.2 \
     && pip install --no-cache-dir --only-binary :all: --find-links /wheels \
-       pyspark==3.5.9 \
        azure-identity==1.25.3 \
        azure-keyvault-secrets==4.11.0 \
        azure-storage-blob==12.30.0 \
        delta-spark==3.2.1 \
        pandas==2.3.3 \
        pandera[pyspark]==0.32.1 \
+       pyspark==3.5.9 \
        requests==2.34.2 \
     && rm -rf /wheels
 
