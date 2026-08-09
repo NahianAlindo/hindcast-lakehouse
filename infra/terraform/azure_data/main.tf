@@ -167,6 +167,22 @@ resource "azurerm_key_vault_secret" "airflow_jwt_secret" {
   }
 }
 
+# Phase 4: Spark's hadoop-azure driver authenticates to ADLS with the raw
+# storage account key (SharedKey auth), not a connection string -- a
+# different credential shape than what the Python extractor/Airflow use
+# (storage_connection_string above), so it gets its own secret rather than
+# parsing one out of the other at runtime.
+resource "azurerm_key_vault_secret" "storage_account_key" {
+  name         = "storage-account-key"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # Airflow's web UI admin login. Unlike owm_api_key/storage_connection_string/
 # airflow_fernet_key above (fetched at container runtime via Managed Identity),
 # this is consumed at docker-compose render time via a VM-local .env file
