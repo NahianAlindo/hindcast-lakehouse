@@ -183,6 +183,35 @@ resource "azurerm_key_vault_secret" "storage_account_key" {
   }
 }
 
+# Databricks Free Edition (side-track demo path, not core pipeline) --
+# workspace URL + personal access token, fetched by the databricks_sync
+# DAG's containers the same way every other secret here is: Managed
+# Identity at container start, never typed into docker-compose or a DAG
+# file. A PAT is a real bearer credential with no expiry enforcement from
+# this side, so it's tracked here (Key Vault, out-of-band value) rather
+# than anywhere it could end up in git history.
+resource "azurerm_key_vault_secret" "databricks_host" {
+  name         = "databricks-host"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "databricks_token" {
+  name         = "databricks-token"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # Airflow's web UI admin login. Unlike owm_api_key/storage_connection_string/
 # airflow_fernet_key above (fetched at container runtime via Managed Identity),
 # this is consumed at docker-compose render time via a VM-local .env file

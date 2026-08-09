@@ -45,6 +45,13 @@ def _spark_task(task_id: str, script: str) -> DockerOperator:
         docker_url="unix://var/run/docker.sock",
         auto_remove="success",
         mount_tmp_dir=False,
+        # spark_jobs (1 slot): caps concurrent Spark JVM containers across
+        # *every* DAG on this VM, not just within this one. max_active_runs
+        # only serializes this DAG against itself -- without a shared pool,
+        # this DAG's tasks and databricks_sync's export task could still
+        # overlap and reproduce the exact CPU-starvation incident described
+        # above, just across two DAGs instead of one.
+        pool="spark_jobs",
     )
 
 

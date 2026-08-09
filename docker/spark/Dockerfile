@@ -62,13 +62,22 @@ RUN pip install --no-cache-dir --only-binary :all: pip==25.2 \
        pyspark==3.5.9 \
        azure-identity==1.25.3 \
        azure-keyvault-secrets==4.11.0 \
+       azure-storage-blob==12.30.0 \
        delta-spark==3.2.1 \
        pandas==2.3.3 \
        pandera[pyspark]==0.32.1 \
+       requests==2.34.2 \
     && rm -rf /wheels
 
 WORKDIR /opt/transform
 COPY transform/spark/jobs /opt/transform/jobs
+# warehouse/databricks/'s export+load scripts land in the same directory,
+# same PYTHONPATH, same entrypoint mechanism as the bronze_*.py jobs above
+# -- they're just more one-shot jobs this image can run, not a different
+# runtime shape (export_silver_snapshot.py needs the same Spark/Delta
+# session builder those jobs already import from here).
+COPY warehouse/databricks/export_silver_snapshot.py /opt/transform/jobs/
+COPY warehouse/databricks/load_into_databricks.py /opt/transform/jobs/
 
 ENV SPARK_ADLS_JARS_DIR=/opt/spark-jars
 ENV SPARK_MASTER=local[*]

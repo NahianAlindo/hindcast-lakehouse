@@ -20,4 +20,14 @@ print(client.get_secret('${secret_name}').value)
 export AZURE_STORAGE_ACCOUNT_KEY
 AZURE_STORAGE_ACCOUNT_KEY="$(fetch_secret storage-account-key)"
 
+# Only load_into_databricks.py needs Databricks credentials -- fetched
+# conditionally so every other job here doesn't pay for a Key Vault round
+# trip it has no use for.
+if [ "$1" = "load_into_databricks.py" ]; then
+  export DATABRICKS_HOST
+  DATABRICKS_HOST="$(fetch_secret databricks-host)"
+  export DATABRICKS_TOKEN
+  DATABRICKS_TOKEN="$(fetch_secret databricks-token)"
+fi
+
 exec python "/opt/transform/jobs/$1"
