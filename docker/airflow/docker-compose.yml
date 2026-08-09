@@ -1,0 +1,116 @@
+# Deployed to /opt/hindcast/docker-compose.yml on the VM via scp, not
+# rendered by cloud-init -- custom_data changes don't propagate to a live VM
+# (see infra/terraform/azure_compute/main.tf's ignore_changes). Postgres's
+# own password and the Airflow admin UI password come from a VM-local .env
+# file (git-ignored, materialized from Key Vault at deploy time) since
+# docker-compose substitutes those at render time, before any container
+# starts. Everything DAG/task code or Airflow's own crypto touches at
+# runtime (OWM_API_KEY, the ADLS connection string, the Fernet key) is
+# fetched inside each Airflow container instead, via entrypoint-wrapper.sh
+# and the VM's Managed Identity -- never written to disk on the VM at all.
+#
+# `name: hindcast` is pinned explicitly (not left to directory-derived
+# default) so this project adopts the already-running postgres container
+# from cloud-init's original /opt/hindcast/docker-compose.yml (project
+# "hindcast", same derivation) rather than standing up a duplicate one --
+# same image, same volume path, so Compose treats it as unchanged.
+name: hindcast
+
+x-airflow-common-env: &airflow-common-env
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://hindcast_admin:${POSTGRES_PASSWORD}@postgres/airflow
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "60"
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hindcast_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: airflow
+    volumes:
+      # A subdirectory of the mount, not the mount point itself -- a fresh
+      # ext4 filesystem always has a lost+found directory, and initdb refuses
+      # to initialize a non-empty directory.
+      - /mnt/postgres-data/pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hindcast_admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  airflow-init:
+    image: hindcast-airflow:local
+    build:
+      context: ../..
+      dockerfile: docker/airflow/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+    command: version
+    volumes:
+      - ../../orchestration/airflow/dags:/opt/airflow/dags
+
+  airflow-apiserver:
+    image: hindcast-airflow:local
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-common-env
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ../../orchestration/airflow/dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    command: api-server
+
+  airflow-scheduler:
+    image: hindcast-airflow:local
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-common-env
+    volumes:
+      - ../../orchestration/airflow/dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    command: scheduler
+
+  airflow-dag-processor:
+    image: hindcast-airflow:local
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-common-env
+    volumes:
+      - ../../orchestration/airflow/dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    command: dag-processor
+
+  airflow-triggerer:
+    image: hindcast-airflow:local
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-common-env
+    volumes:
+      - ../../orchestration/airflow/dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    command: triggerer
+
+volumes:
+  airflow-logs:
