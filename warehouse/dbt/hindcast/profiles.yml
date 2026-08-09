@@ -45,3 +45,21 @@ hindcast:
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'HINDCAST_XS') }}"
       schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'MARTS') }}"
       threads: 4
+
+    # Databricks Free Edition (side-track demo environment, not on the
+    # critical path -- docs/PLAN.md's phases are unaffected). Only
+    # serverless SQL warehouses are available on this tier, so there's no
+    # abfs/hadoop-azure connector for reading ADLS in place the way
+    # duckdb's delta_scan does; sources instead read from
+    # workspace.hindcast_silver, loaded by warehouse/databricks/
+    # export_silver_snapshot.py + load_into_databricks.py's COPY INTO
+    # (mirrors the same three silver tables Phase 6's Snowflake COPY INTO
+    # reads).
+    databricks:
+      type: databricks
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH', '/sql/1.0/warehouses/3e7e1236bdf67349') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      catalog: "{{ env_var('DATABRICKS_CATALOG', 'workspace') }}"
+      schema: "{{ env_var('DATABRICKS_SCHEMA', 'hindcast') }}"
+      threads: 4

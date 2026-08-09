@@ -21,6 +21,6 @@ select
         when milestone_hours <= 24 then 'short'
         else 'medium'
     end as horizon_class,
-    lpad(milestone_hours::varchar, 3, '0') || 'h' as label,
+    lpad(cast(milestone_hours as string), 3, '0') || 'h' as label,
     row_number() over (order by milestone_hours) as sort_order
 from milestones

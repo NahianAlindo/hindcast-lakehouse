@@ -14,7 +14,7 @@ with base as (
         f.*,
         l.location_key,
         l.iana_tz,
-        f.valid_ts_utc at time zone l.iana_tz as valid_ts_local
+        {{ to_local_timestamp('f.valid_ts_utc', 'l.iana_tz') }} as valid_ts_local
     from {{ ref('int_forecast_with_leadtime') }} f
     left join {{ ref('dim_location') }} l on l.location_id = f.location_id
 )

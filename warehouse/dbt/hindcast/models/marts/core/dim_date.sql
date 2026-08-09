@@ -4,9 +4,15 @@
 -- (dim_location) spans both -- Sydney's summer is Oshawa's winter, and a
 -- single `season` column would silently be wrong for half the fact rows.
 with days as (
+    {%- if target.type == 'databricks' -%}
+    -- Spark SQL's range() is integer-only (no date bounds like DuckDB's);
+    -- sequence()+explode() is the Spark-native way to generate a date series.
+    select explode(sequence(cast('2025-01-01' as date), cast('2031-12-31' as date), interval 1 day)) as date_day
+    {%- else -%}
     select
         cast(d as date) as date_day
     from range(cast('2025-01-01' as date), cast('2032-01-01' as date), interval 1 day) as t(d)
+    {%- endif %}
 )
 
 select
@@ -18,8 +24,8 @@ select
     extract(doy from date_day)     as day_of_year,
     extract(week from date_day)    as iso_week,
     extract(dow from date_day)     as day_of_week,   -- 0=Sunday
-    strftime(date_day, '%A')       as day_name,
-    strftime(date_day, '%B')       as month_name,
+    {{ day_name('date_day') }}     as day_name,
+    {{ month_name('date_day') }}   as month_name,
     extract(dow from date_day) in (0, 6) as is_weekend,
     case extract(month from date_day)
         when 12 then 'Winter' when 1 then 'Winter' when 2 then 'Winter'

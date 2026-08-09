@@ -40,7 +40,7 @@ matched as (
                                 and l.lookback_ts + interval '{{ tolerance }} minutes'
     qualify row_number() over (
         partition by l.location_id, l.valid_ts_utc
-        order by abs(datediff('second', l.lookback_ts, o.obs_ts_utc)) asc
+        order by abs({{ datediff_seconds('o.obs_ts_utc', 'l.lookback_ts') }}) asc
     ) = 1
 )
 

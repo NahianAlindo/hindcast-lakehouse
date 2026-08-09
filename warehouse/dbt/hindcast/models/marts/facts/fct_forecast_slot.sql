@@ -48,6 +48,26 @@ lifecycle as (
     group by location_id, valid_ts_utc
 ),
 
+-- Which run_id contributed the latest-issued forecast for each slot, for
+-- the dim_pipeline_run join below. A window function + filter, not a
+-- correlated scalar subquery inside the JOIN condition: Databricks/Spark
+-- SQL rejects a correlated subquery there
+-- (UNSUPPORTED_CORRELATED_SCALAR_SUBQUERY) even though DuckDB accepts it.
+latest_run as (
+    select location_id, valid_ts_utc, run_id
+    from (
+        select
+            location_id,
+            valid_ts_utc,
+            run_id,
+            row_number() over (
+                partition by location_id, valid_ts_utc order by issued_at_utc desc
+            ) as rn
+        from {{ ref('int_forecast_with_leadtime') }}
+    ) ranked
+    where rn = 1
+),
+
 actuals as (
     select
         location_id,
@@ -198,12 +218,9 @@ left join {{ ref('dim_location_regime') }} lr
       and (lr.valid_to is null or ws.first_forecast_at < lr.valid_to)
 left join {{ ref('dim_date') }} dd on dd.date_day = cast(ws.valid_ts_utc as date)
 left join {{ ref('dim_time') }} tu on tu.hour = extract(hour from ws.valid_ts_utc)
-left join {{ ref('dim_time') }} tl on tl.hour = extract(hour from (ws.valid_ts_utc at time zone l.iana_tz))
-left join {{ ref('dim_pipeline_run') }} pr on pr.run_id = (
-    select run_id from {{ ref('int_forecast_with_leadtime') }} f
-    where f.location_id = ws.location_id and f.valid_ts_utc = ws.valid_ts_utc
-    order by f.issued_at_utc desc limit 1
-)
+left join {{ ref('dim_time') }} tl on tl.hour = extract(hour from ({{ to_local_timestamp('ws.valid_ts_utc', 'l.iana_tz') }}))
+left join latest_run lru on lru.location_id = ws.location_id and lru.valid_ts_utc = ws.valid_ts_utc
+left join {{ ref('dim_pipeline_run') }} pr on pr.run_id = lru.run_id
 left join {{ ref('dim_weather_condition') }} wc_actual on wc_actual.code = ws.weather_code_actual
 {% for h in milestones -%}
 left join {{ ref('dim_weather_condition') }} wc_{{ h }} on wc_{{ h }}.code = ws.weather_code_fcst_{{ h }}h

@@ -17,7 +17,7 @@ matched as (
         s.location_id,
         s.valid_ts_utc,
         o.obs_ts_utc                                            as actual_obs_ts,
-        datediff('minute', s.valid_ts_utc, o.obs_ts_utc)         as match_offset_minutes,
+        {{ datediff_minutes('o.obs_ts_utc', 's.valid_ts_utc') }} as match_offset_minutes,
         o.temp_c                                                as temp_actual_c,
         o.wind_speed_ms                                         as wind_speed_actual_ms,
         o.wind_deg                                              as wind_deg_actual,
@@ -29,7 +29,7 @@ matched as (
                                 and s.valid_ts_utc + interval '{{ tolerance }} minutes'
     qualify row_number() over (
         partition by s.location_id, s.valid_ts_utc
-        order by abs(datediff('second', s.valid_ts_utc, o.obs_ts_utc)) asc,
+        order by abs({{ datediff_seconds('o.obs_ts_utc', 's.valid_ts_utc') }}) asc,
                  o.obs_ts_utc asc
     ) = 1
 ),
