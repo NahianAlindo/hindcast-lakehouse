@@ -6,6 +6,7 @@
 -- null rather than silently dropping the slot -- fct_forecast_slot turns
 -- that into slot_status = 'closed_no_actual'.
 {% set tolerance = var('actual_match_tolerance_minutes') %}
+{% set tolerance_interval = "interval '" ~ tolerance ~ " minutes'" %}
 
 with slots as (
     select distinct location_id, valid_ts_utc
@@ -25,8 +26,8 @@ matched as (
     from slots s
     left join {{ ref('stg_owm__current') }} o
            on o.location_id = s.location_id
-          and o.obs_ts_utc between s.valid_ts_utc - interval '{{ tolerance }} minutes'
-                                and s.valid_ts_utc + interval '{{ tolerance }} minutes'
+          and o.obs_ts_utc between s.valid_ts_utc - {{ tolerance_interval }}
+                                and s.valid_ts_utc + {{ tolerance_interval }}
     qualify row_number() over (
         partition by s.location_id, s.valid_ts_utc
         order by abs({{ datediff_seconds('o.obs_ts_utc', 's.valid_ts_utc') }}) asc,
@@ -49,8 +50,8 @@ windowed as (
     from slots s
     left join {{ ref('stg_owm__current') }} o
            on o.location_id = s.location_id
-          and o.obs_ts_utc between s.valid_ts_utc - interval '{{ tolerance }} minutes'
-                                and s.valid_ts_utc + interval '{{ tolerance }} minutes'
+          and o.obs_ts_utc between s.valid_ts_utc - {{ tolerance_interval }}
+                                and s.valid_ts_utc + {{ tolerance_interval }}
     group by s.location_id, s.valid_ts_utc
 )
 

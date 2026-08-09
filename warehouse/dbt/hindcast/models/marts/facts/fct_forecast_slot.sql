@@ -18,6 +18,8 @@
 }}
 
 {% set milestones = var('milestone_hours') %}
+{% set tolerance_minutes = var('actual_match_tolerance_minutes') %}
+{% set tolerance_interval = "interval '" ~ tolerance_minutes ~ " minutes'" %}
 
 with pivoted as (
     select
@@ -126,7 +128,7 @@ with_status as (
         -- progress" than a slot that's only been seen at 96h/120h lead.
         case
             when j.actual_obs_ts is not null then 'closed'
-            when j.valid_ts_utc < current_timestamp - interval '{{ var("actual_match_tolerance_minutes") }} minutes'
+            when j.valid_ts_utc < current_timestamp - {{ tolerance_interval }}
                 then 'closed_no_actual'
             when j.valid_ts_utc <= current_timestamp then 'awaiting_actual'
             when j.valid_ts_utc - current_timestamp <= interval '24 hours' then 'forecasting'
@@ -138,9 +140,9 @@ with_status as (
         -- enough that every milestone <= its age should exist).
         case
             when j.actual_obs_ts is null
-                 and j.valid_ts_utc < current_timestamp - interval '{{ var("actual_match_tolerance_minutes") }} minutes'
+                 and j.valid_ts_utc < current_timestamp - {{ tolerance_interval }}
                 then 'no_actual'
-            when j.match_offset_minutes is not null and abs(j.match_offset_minutes) > {{ (var("actual_match_tolerance_minutes") / 2) | int }}
+            when j.match_offset_minutes is not null and abs(j.match_offset_minutes) > {{ (tolerance_minutes / 2) | int }}
                 then 'wide_match_offset'
             when j.valid_ts_utc <= current_timestamp
                  and ({{ milestones | length }} - (

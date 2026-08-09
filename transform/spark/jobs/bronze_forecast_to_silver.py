@@ -40,6 +40,7 @@ def main() -> None:
         F.explode("payload.list").alias("timestep"),
     )
 
+    weather0 = F.col("timestep.weather")[0]
     flat = exploded.select(
         "location_id",
         "run_id",
@@ -55,10 +56,10 @@ def main() -> None:
         F.col("timestep.pop").alias("pop"),
         F.col("timestep.wind.speed").alias("wind_speed_ms"),
         F.col("timestep.wind.deg").alias("wind_deg"),
-        F.col("timestep.weather")[0]["id"].alias("weather_code"),
-        F.col("timestep.weather")[0]["main"].alias("weather_main"),
-        F.col("timestep.weather")[0]["description"].alias("weather_description"),
-        F.col("timestep.weather")[0]["icon"].alias("weather_icon"),
+        weather0["id"].alias("weather_code"),
+        weather0["main"].alias("weather_main"),
+        weather0["description"].alias("weather_description"),
+        weather0["icon"].alias("weather_icon"),
     ).withColumn(
         "lead_time_minutes",
         (F.col("valid_ts").cast("long") - F.col("issued_at").cast("long")) / 60,

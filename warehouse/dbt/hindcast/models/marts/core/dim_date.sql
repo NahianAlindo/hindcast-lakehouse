@@ -13,30 +13,34 @@ with days as (
         cast(d as date) as date_day
     from range(cast('2025-01-01' as date), cast('2032-01-01' as date), interval 1 day) as t(d)
     {%- endif %}
+),
+
+-- Month -> season mapping, one row per month rather than a season name
+-- literal repeated across a dozen CASE branches (each of the 4 season
+-- names would otherwise appear 4-6 times between the two hemisphere
+-- columns). Northern and southern are exactly 6 months out of phase.
+month_seasons as (
+    select * from (values
+        (12, 'Winter', 'Summer'), (1, 'Winter', 'Summer'), (2, 'Winter', 'Summer'),
+        (3, 'Spring', 'Fall'),    (4, 'Spring', 'Fall'),    (5, 'Spring', 'Fall'),
+        (6, 'Summer', 'Winter'),  (7, 'Summer', 'Winter'),  (8, 'Summer', 'Winter'),
+        (9, 'Fall',   'Spring'),  (10, 'Fall',  'Spring'),  (11, 'Fall',  'Spring')
+    ) as t(month, season_northern, season_southern)
 )
 
 select
-    {{ dbt_utils.generate_surrogate_key(['date_day']) }} as date_key,
-    date_day,
-    extract(year from date_day)    as year,
-    extract(month from date_day)   as month,
-    extract(day from date_day)     as day_of_month,
-    extract(doy from date_day)     as day_of_year,
-    extract(week from date_day)    as iso_week,
-    extract(dow from date_day)     as day_of_week,   -- 0=Sunday
-    {{ day_name('date_day') }}     as day_name,
-    {{ month_name('date_day') }}   as month_name,
-    extract(dow from date_day) in (0, 6) as is_weekend,
-    case extract(month from date_day)
-        when 12 then 'Winter' when 1 then 'Winter' when 2 then 'Winter'
-        when 3 then 'Spring'  when 4 then 'Spring'  when 5 then 'Spring'
-        when 6 then 'Summer'  when 7 then 'Summer'  when 8 then 'Summer'
-        else 'Fall'
-    end as season_northern,
-    case extract(month from date_day)
-        when 12 then 'Summer' when 1 then 'Summer' when 2 then 'Summer'
-        when 3 then 'Fall'    when 4 then 'Fall'    when 5 then 'Fall'
-        when 6 then 'Winter'  when 7 then 'Winter'  when 8 then 'Winter'
-        else 'Spring'
-    end as season_southern
+    {{ dbt_utils.generate_surrogate_key(['days.date_day']) }} as date_key,
+    days.date_day,
+    extract(year from days.date_day)    as year,
+    extract(month from days.date_day)   as month,
+    extract(day from days.date_day)     as day_of_month,
+    extract(doy from days.date_day)     as day_of_year,
+    extract(week from days.date_day)    as iso_week,
+    extract(dow from days.date_day)     as day_of_week,   -- 0=Sunday
+    {{ day_name('days.date_day') }}     as day_name,
+    {{ month_name('days.date_day') }}   as month_name,
+    extract(dow from days.date_day) in (0, 6) as is_weekend,
+    ms.season_northern,
+    ms.season_southern
 from days
+left join month_seasons ms on ms.month = extract(month from days.date_day)

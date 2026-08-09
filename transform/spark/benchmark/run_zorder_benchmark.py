@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import time
-
 import os
+import time
+from functools import partial
+from pathlib import Path
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -45,6 +46,10 @@ def run_milestones_simple(spark, source, dim):
     return selected.join(F.broadcast(dim), "location_id", "left")
 
 
+def _count_milestones(spark, delta_df, dim) -> int:
+    return run_milestones_simple(spark, delta_df, dim).count()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True, help="Parquet path to load and re-write as Delta")
@@ -74,22 +79,32 @@ def main() -> None:
         .getOrCreate()
     )
 
-    source = spark.read.parquet(args.source)
-    source.write.format("delta").mode("overwrite").save(args.delta_path)
+    # Local benchmark CLI, not network-facing -- --source/--delta-path/
+    # --results are meant to point wherever the developer running it
+    # chooses. Resolving through pathlib normalizes '..'/'.' segments
+    # rather than passing raw CLI text straight into filesystem calls.
+    source_dir = Path(args.source).resolve()
+    delta_path = Path(args.delta_path).resolve()
+    results_path = Path(args.results).resolve()
+
+    source = spark.read.parquet(str(source_dir))
+    source.write.format("delta").mode("overwrite").save(str(delta_path))
     dim = build_dim_location(spark)
 
     for zorder in (False, True):
         if zorder:
             spark.sql(
-                f"OPTIMIZE delta.`{args.delta_path}` ZORDER BY (location_id, valid_ts)"
+                f"OPTIMIZE delta.`{delta_path}` ZORDER BY (location_id, valid_ts)"
             )
 
-        delta_df = spark.read.format("delta").load(args.delta_path)
+        delta_df = spark.read.format("delta").load(str(delta_path))
 
-        def action():
-            return run_milestones_simple(spark, delta_df, dim).count()
-
-        metrics = timed_run(spark, action)
+        # functools.partial binds delta_df's *current* value immediately,
+        # rather than a closure that would capture the loop variable by
+        # reference (classic Python loop-closure pitfall -- not live here
+        # since timed_run calls it within the same iteration, but the
+        # pattern is worth avoiding outright rather than relying on that).
+        metrics = timed_run(spark, partial(_count_milestones, spark, delta_df, dim))
         record = {
             "timestamp": time.time(),
             "engine": "spark",
@@ -98,7 +113,7 @@ def main() -> None:
             "label": "zorder_on" if zorder else "zorder_off",
             **metrics,
         }
-        with open(args.results, "a") as f:
+        with results_path.open("a") as f:
             f.write(json.dumps(record) + "\n")
         print(json.dumps(record, indent=2))
 

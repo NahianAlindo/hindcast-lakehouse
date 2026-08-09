@@ -229,12 +229,18 @@ resource "azurerm_managed_disk" "postgres_data" {
   public_network_access_enabled = false
   network_access_policy         = "DenyAll"
 
-  # No `disk_encryption_set_id`: that's for customer-managed keys. Azure
-  # encrypts this disk at rest by default with platform-managed keys (SSE),
-  # which is sufficient here -- there's no compliance requirement driving a
-  # CMK setup, and standing one up would mean an extra Key Vault key + a
-  # dedicated Disk Encryption Set resource for no real benefit to a $0
-  # student portfolio project.
+  # No `disk_encryption_set_id` (terraform:S6329's finding): Azure encrypts
+  # this disk at rest by default with platform-managed keys (SSE) regardless
+  # -- not cleartext storage, just not a customer-controlled key. A real CMK
+  # setup was attempted and reverted: Azure rejected it live with
+  # "KeyVaultAndDiskInDifferentRegions" -- a Disk Encryption Set's Key Vault
+  # must be in the *same* region as the disk, and this project's Key Vault
+  # is deliberately in eastus while this disk is deliberately in westus2
+  # (see the location comment above -- the VM landed there after eastus
+  # capacity restrictions). Fixing this for real means a second Key Vault
+  # in westus2 just to hold one disk's key, which is real added
+  # infrastructure surface for a rule that's about key ownership, not an
+  # actual encryption gap. Not worth it for a $0 student portfolio project.
 
   lifecycle {
     prevent_destroy = true

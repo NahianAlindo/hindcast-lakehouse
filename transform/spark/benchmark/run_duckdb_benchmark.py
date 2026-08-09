@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import time
+from pathlib import Path
 
 import duckdb
 
@@ -57,13 +57,22 @@ def main() -> None:
     parser.add_argument("--results", required=True)
     args = parser.parse_args()
 
-    os.makedirs(args.temp_dir, exist_ok=True)
+    # This is a local benchmark CLI, not a network-facing service --
+    # --source/--results/--temp-dir are meant to point wherever the
+    # developer running it chooses (that's the actual feature, not a bug).
+    # Resolving through pathlib still normalizes any '..'/'.' segments
+    # rather than passing raw CLI text straight into filesystem calls.
+    source_dir = Path(args.source).resolve()
+    results_path = Path(args.results).resolve()
+    temp_dir = Path(args.temp_dir).resolve()
+
+    temp_dir.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
     con.execute(f"PRAGMA threads={args.threads}")
     con.execute(f"PRAGMA memory_limit='{args.memory_limit}'")
-    con.execute(f"PRAGMA temp_directory='{args.temp_dir}'")
+    con.execute(f"PRAGMA temp_directory='{temp_dir}'")
     con.execute("SET preserve_insertion_order=false")
-    con.execute(f"CREATE VIEW source AS SELECT * FROM read_parquet('{args.source}/**/*.parquet')")
+    con.execute(f"CREATE VIEW source AS SELECT * FROM read_parquet('{source_dir}/**/*.parquet')")
 
     query = QUERY_TEMPLATE.format(milestones=MILESTONE_HOURS)
 
@@ -77,11 +86,11 @@ def main() -> None:
         "rows": args.rows,
         "threads": args.threads,
         "label": args.label,
-        "source": args.source,
+        "source": str(source_dir),
         "wall_clock_seconds": elapsed,
         "result": result,
     }
-    with open(args.results, "a") as f:
+    with results_path.open("a") as f:
         f.write(json.dumps(record) + "\n")
 
     print(json.dumps(record, indent=2))

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from pathlib import Path
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -134,7 +135,14 @@ def main() -> None:
         builder = builder.config("spark.sql.autoBroadcastJoinThreshold", "-1")
     spark = builder.getOrCreate()
 
-    source = spark.read.parquet(args.source)
+    # Local benchmark CLI, not network-facing -- --source/--results are
+    # meant to point wherever the developer running it chooses. Resolving
+    # through pathlib normalizes '..'/'.' segments rather than passing raw
+    # CLI text straight into filesystem calls.
+    source_dir = Path(args.source).resolve()
+    results_path = Path(args.results).resolve()
+
+    source = spark.read.parquet(str(source_dir))
     dim = None if args.skip_join else build_dim_location(spark)
 
     def action():
@@ -155,10 +163,10 @@ def main() -> None:
         "partitioned": args.partitioned,
         "skip_join": args.skip_join,
         "label": args.label,
-        "source": args.source,
+        "source": str(source_dir),
         **metrics,
     }
-    with open(args.results, "a") as f:
+    with results_path.open("a") as f:
         f.write(json.dumps(record) + "\n")
 
     print(json.dumps(record, indent=2))

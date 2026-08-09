@@ -28,6 +28,7 @@ def main() -> None:
     path = bronze_path(ENDPOINT) + os.environ.get("BRONZE_PATH_SUFFIX", "")
     raw = spark.read.json(path).where(F.col("http_status") == 200)
 
+    weather0 = F.col("payload.weather")[0]
     flat = raw.select(
         F.col("location_id"),
         F.col("run_id"),
@@ -44,10 +45,10 @@ def main() -> None:
         F.col("payload.wind.gust").alias("wind_gust_ms"),
         F.col("payload.clouds.all").alias("clouds_pct"),
         F.col("payload.visibility").alias("visibility_m"),
-        F.col("payload.weather")[0]["id"].alias("weather_code"),
-        F.col("payload.weather")[0]["main"].alias("weather_main"),
-        F.col("payload.weather")[0]["description"].alias("weather_description"),
-        F.col("payload.weather")[0]["icon"].alias("weather_icon"),
+        weather0["id"].alias("weather_code"),
+        weather0["main"].alias("weather_main"),
+        weather0["description"].alias("weather_description"),
+        weather0["icon"].alias("weather_icon"),
         F.col("payload_sha256"),
     )
 
