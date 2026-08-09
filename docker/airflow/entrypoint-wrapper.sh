@@ -10,11 +10,12 @@ set -euo pipefail
 KEY_VAULT_URL="https://kv-hindcastjlbpfz.vault.azure.net/"
 
 fetch_secret() {
+  local secret_name="$1"
   python -c "
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 client = SecretClient(vault_url='${KEY_VAULT_URL}', credential=DefaultAzureCredential())
-print(client.get_secret('$1').value)
+print(client.get_secret('${secret_name}').value)
 "
 }
 
