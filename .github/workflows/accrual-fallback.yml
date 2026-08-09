@@ -1,27 +1,24 @@
 name: accrual-fallback
 
-# Interim scheduler for the three OpenWeatherMap extractors, standing in for
-# Airflow until Phase 3 stands it up. Also doubles as the plan's own
-# Phase-8 "$0 continuity path" (docs/PLAN.md), just promoted earlier: it
-# keeps ingestion alive from GitHub's free runners if the Azure VM is ever
-# down. Free-tier cron is delayed/skipped under load -- tolerated by
-# design, since `issued_at` is minted from the actual request time inside
-# the extractor, never inferred from this schedule.
+# Phase 3: Airflow (owm_current_ingest, owm_forecast_ingest,
+# owm_air_quality_ingest, on the VM) is now the primary scheduler. This
+# workflow was the interim scheduler before that existed, and now reverts to
+# what docs/PLAN.md's Phase 8 always intended it to be -- the $0 continuity
+# path, run on demand if the VM/Airflow is ever down, not a permanent
+# parallel scheduler. The schedule: triggers are deliberately removed: with
+# both this and Airflow running the same cadences, two independent writers
+# would race the forecast dedup-state blob in ADLS (see
+# run_forecast.fetch_and_land's docstring) with no coordination between
+# them. Trigger manually via workflow_dispatch (endpoint=all by default) if
+# the VM is down for an extended stretch.
 #
 # Writes straight to Azure ADLS Gen2 (bronze container) via a storage
 # account connection string -- not a Managed Identity, since this runner
 # isn't an Azure resource and this tenant blocks Service Principal/OIDC
 # federation for students (see CLAUDE.md). A connection string is the
 # pragmatic, fully-working alternative for storage specifically.
-# GitHub Actions runners are otherwise ephemeral and used to require
-# committing bronze back to the repo as an interim durable store before
-# ADLS existed -- that stopgap is retired now that it does.
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"  # current weather
-    - cron: "0 */3 * * *"   # forecast
-    - cron: "0 * * * *"     # air quality
   workflow_dispatch:
     inputs:
       endpoint:
@@ -56,13 +53,13 @@ jobs:
           echo "AZURE_STORAGE_CONNECTION_STRING=$AZURE_STORAGE_CONNECTION_STRING" >> .env
 
       - name: Run current-weather extractor
-        if: github.event.schedule == '*/30 * * * *' || github.event.inputs.endpoint == 'current' || github.event.inputs.endpoint == 'all'
+        if: github.event.inputs.endpoint == 'current' || github.event.inputs.endpoint == 'all'
         run: uv run --frozen --no-build python ingestion/hindcast_extract/run_current.py
 
       - name: Run forecast extractor
-        if: github.event.schedule == '0 */3 * * *' || github.event.inputs.endpoint == 'forecast' || github.event.inputs.endpoint == 'all'
+        if: github.event.inputs.endpoint == 'forecast' || github.event.inputs.endpoint == 'all'
         run: uv run --frozen --no-build python ingestion/hindcast_extract/run_forecast.py
 
       - name: Run air-quality extractor
-        if: github.event.schedule == '0 * * * *' || github.event.inputs.endpoint == 'air_quality' || github.event.inputs.endpoint == 'all'
+        if: github.event.inputs.endpoint == 'air_quality' || github.event.inputs.endpoint == 'all'
         run: uv run --frozen --no-build python ingestion/hindcast_extract/run_air_quality.py
