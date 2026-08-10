@@ -7,7 +7,6 @@ stages:
       hash: md5
       md5: 8602bade4521770f6c9644a74e8234be
       size: 963
-      isexec: true
     - path: warehouse/dbt/hindcast/macros
       hash: md5
       md5: 59af4d707e450b65840c55f0905abbae.dir
@@ -22,7 +21,6 @@ stages:
       hash: md5
       md5: 3345a6a9a3e95f914dfc24a919509b27
       size: 3264
-      isexec: true
     - path: warehouse/dbt/hindcast/seeds
       hash: md5
       md5: 2e01d188285fb6d288f95ef521d8442c.dir
@@ -36,25 +34,22 @@ stages:
     outs:
     - path: warehouse/dbt/hindcast/hindcast.duckdb
       hash: md5
-      md5: 266d6ba1d9ee85a6cd50fef988810dce
+      md5: abdc8d5457b611b7d68b3ff9c414108e
       size: 6828032
-      isexec: true
   export_marts:
     cmd: python warehouse/dvc/export_marts_duckdb.py
     deps:
     - path: warehouse/dbt/hindcast/hindcast.duckdb
       hash: md5
-      md5: 266d6ba1d9ee85a6cd50fef988810dce
+      md5: abdc8d5457b611b7d68b3ff9c414108e
       size: 6828032
-      isexec: true
     - path: warehouse/dvc/export_marts_duckdb.py
       hash: md5
       md5: 1b232b4501e66f3ffb9a250cf780fe52
       size: 1996
-      isexec: true
     outs:
     - path: data/exports
       hash: md5
-      md5: 8e22e59b365534d1ad35a79bd4ef80f4.dir
-      size: 1738330
+      md5: 310bf170f94ec25f44c3ad386a921b61.dir
+      size: 1731662
       nfiles: 13
