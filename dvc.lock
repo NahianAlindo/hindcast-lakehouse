@@ -34,14 +34,14 @@ stages:
     outs:
     - path: warehouse/dbt/hindcast/hindcast.duckdb
       hash: md5
-      md5: abdc8d5457b611b7d68b3ff9c414108e
+      md5: 2fa418daf06854abc3eb2cc049bab896
       size: 6828032
   export_marts:
     cmd: python warehouse/dvc/export_marts_duckdb.py
     deps:
     - path: warehouse/dbt/hindcast/hindcast.duckdb
       hash: md5
-      md5: abdc8d5457b611b7d68b3ff9c414108e
+      md5: 2fa418daf06854abc3eb2cc049bab896
       size: 6828032
     - path: warehouse/dvc/export_marts_duckdb.py
       hash: md5
@@ -50,6 +50,6 @@ stages:
     outs:
     - path: data/exports
       hash: md5
-      md5: 310bf170f94ec25f44c3ad386a921b61.dir
-      size: 1731662
+      md5: 213dcb8506751791cb007bcd4dd078c0.dir
+      size: 1757835
       nfiles: 13
