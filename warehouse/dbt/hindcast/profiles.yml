@@ -63,3 +63,25 @@ hindcast:
       catalog: "{{ env_var('DATABRICKS_CATALOG', 'workspace') }}"
       schema: "{{ env_var('DATABRICKS_SCHEMA', 'hindcast') }}"
       threads: 4
+
+# elementary-data's `edr report`/`edr monitor` CLI runs its own internal dbt
+# project (bundled inside the package), whose dbt_project.yml hard-codes
+# `profile: elementary` -- a real, documented Elementary requirement, not
+# something configurable away (hit this live: "Could not find profile named
+# 'elementary'" against just the `hindcast` profile above). Same Snowflake
+# connection as the `hindcast` profile's snowflake output, schema matching
+# dbt_project.yml's `models: elementary: +schema: elementary` so both
+# elementary's own writes and this project's reads land in the same place.
+elementary:
+  target: snowflake
+  outputs:
+    snowflake:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT', '') }}"
+      user: "{{ env_var('SNOWFLAKE_USER', '') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD', '') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'TRANSFORMER') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'HINDCAST') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'HINDCAST_XS') }}"
+      schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'MARTS') }}_elementary"
+      threads: 4
