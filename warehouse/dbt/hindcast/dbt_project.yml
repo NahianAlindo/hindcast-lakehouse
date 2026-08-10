@@ -23,6 +23,11 @@ models:
       facts:
         +materialized: table
         +schema: facts
+  # elementary-data's own internal monitoring tables (test result history,
+  # run history, freshness/volume anomaly detection) -- a dedicated schema
+  # so they never mix with the star schema itself.
+  elementary:
+    +schema: elementary
 
 seeds:
   hindcast:

@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: int_observation_slot_matched
+    description: Actual-matching (docs/PLAN.md §6.3b) -- nearest real observation within the tolerance window.
+    columns:
+      - name: match_offset_minutes
+        description: Signed distance between the matched observation and the forecast slot's valid_ts_utc.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -90
+                max_value: 90
+                # A null here means "no observation matched at all" (the
+                # LEFT JOIN's whole point, per this model's own header
+                # comment) -- a real, expected state, not a violation of
+                # the tolerance window itself.
+                row_condition: "match_offset_minutes is not null"
+
+  - name: int_forecast_milestone_pivot
+    description: Lead-time milestone selection (docs/PLAN.md §6.3a) -- for milestone L, the forecast whose lead_time_hours is the smallest value >= L.
+    tests:
+      # Per-row, model-level (not nested under a column -- this is a
+      # compound expression across two columns, not a single-column check):
+      # the join condition (lead_time_hours >= L and < L+3) already
+      # guarantees this at write time; testing it here catches a
+      # regression in that logic, not just documents it.
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "actual_lead_hours >= milestone_hours and actual_lead_hours < milestone_hours + 3"
+    columns:
+      - name: actual_lead_hours
+        description: >
+          The real lead time backing each milestone's reported figure --
+          must never be more informed than its label (this model's own
+          header comment). Per-bucket mean is checked by the singular test
+          tests/assert_milestone_lead_time_mean_in_range.sql, not here --
+          dbt's YAML property files only render Jinja inside string values,
+          not as full-file templating that can generate multiple list
+          entries (verified live: a Jinja for-loop over milestone_hours
+          here is a real parse error, not just a style choice), so the
+          one-test-per-milestone loop docs/PLAN.md Phase 7 calls for has to
+          live in a .sql test file instead, where Jinja loops are fully
+          supported.
