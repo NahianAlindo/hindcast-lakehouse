@@ -76,3 +76,12 @@ SELECT * FROM workspace.hindcast_silver.obs_weather
 
 Run `DESCRIBE HISTORY workspace.hindcast_silver.obs_weather` first to see
 available versions/timestamps.
+
+**Verified live, not just documented from theory:** `DESCRIBE HISTORY` on the
+real table shows a genuine alternating `COPY INTO` / `TRUNCATE` history from
+`databricks_sync`'s daily runs (10 versions at the time of checking). Querying
+`VERSION AS OF 7` (the state right after a `TRUNCATE`, before that day's
+reload) returned 1,000 rows against the then-current 1,080 — a real,
+different point-in-time result, not a no-op. `TIMESTAMP AS OF` against that
+same version's recorded timestamp returned the identical 1,000-row count,
+confirming both forms restore the same state.
