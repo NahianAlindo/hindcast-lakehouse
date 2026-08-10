@@ -250,6 +250,22 @@ resource "azurerm_key_vault_secret" "snowflake_password" {
   }
 }
 
+# Phase 6: the weekly dvc_snapshot DAG needs GitHub write access (git
+# commit/tag/push) from an unattended job on the VM. A fine-grained PAT
+# scoped to just this repo (Contents: Read and write, nothing else) is the
+# same trust pattern already used for databricks-token above -- Key-Vault-
+# stored, Managed-Identity-fetched, never on disk, never in git.
+resource "azurerm_key_vault_secret" "github_pat" {
+  name         = "github-pat"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # Airflow's web UI admin login. Unlike owm_api_key/storage_connection_string/
 # airflow_fernet_key above (fetched at container runtime via Managed Identity),
 # this is consumed at docker-compose render time via a VM-local .env file

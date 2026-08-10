@@ -1,0 +1,5 @@
+[core]
+    analytics = false
+    remote = azure_remote
+['remote "azure_remote"']
+    url = azure://dvc/exports

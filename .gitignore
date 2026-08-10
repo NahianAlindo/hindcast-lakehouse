@@ -33,9 +33,20 @@ warehouse/dbt/**/*.duckdb
 warehouse/dbt/**/*.duckdb.wal
 warehouse/dbt/**/.user.yml
 
-# Data — tracked via DVC pointers, not git
+# Restore-a-data-version output (docs/runbooks/restore-a-data-version.md,
+# warehouse/dvc/load_exports_into_duckdb.py) -- a local scratch artifact,
+# regenerated on demand from a DVC-pulled snapshot, same reasoning as the
+# dbt-produced *.duckdb files above.
+/hindcast_restored.duckdb
+
+# Data — tracked via DVC pointers, not git. The *.dvc pointer files
+# themselves are small metadata and belong in git (that's the whole
+# mechanism); only the real content they point at needs excluding, and DVC
+# already manages that narrower exclusion itself at `dvc add`/`dvc repro`
+# time (see e.g. data/exports/.gitignore once that stage has run once).
 data/*
 !data/.gitkeep
+!data/**/*.dvc
 *.parquet
 *.jsonl.gz
 

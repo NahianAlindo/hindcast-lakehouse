@@ -1,0 +1,60 @@
+schema: '2.0'
+stages:
+  dbt_build:
+    cmd: cd warehouse/dbt/hindcast && dbt build --profiles-dir . --target duckdb
+    deps:
+    - path: warehouse/dbt/hindcast/dbt_project.yml
+      hash: md5
+      md5: 8602bade4521770f6c9644a74e8234be
+      size: 963
+      isexec: true
+    - path: warehouse/dbt/hindcast/macros
+      hash: md5
+      md5: 59af4d707e450b65840c55f0905abbae.dir
+      size: 7165
+      nfiles: 2
+    - path: warehouse/dbt/hindcast/models
+      hash: md5
+      md5: 1fb83be7c1da5e8c82f09de9627f631e.dir
+      size: 49597
+      nfiles: 26
+    - path: warehouse/dbt/hindcast/profiles.yml
+      hash: md5
+      md5: 3345a6a9a3e95f914dfc24a919509b27
+      size: 3264
+      isexec: true
+    - path: warehouse/dbt/hindcast/seeds
+      hash: md5
+      md5: 2e01d188285fb6d288f95ef521d8442c.dir
+      size: 3114
+      nfiles: 2
+    - path: warehouse/dbt/hindcast/snapshots
+      hash: md5
+      md5: 9ba7cd019f4f200f6bbafed39067456b.dir
+      size: 918
+      nfiles: 1
+    outs:
+    - path: warehouse/dbt/hindcast/hindcast.duckdb
+      hash: md5
+      md5: 266d6ba1d9ee85a6cd50fef988810dce
+      size: 6828032
+      isexec: true
+  export_marts:
+    cmd: python warehouse/dvc/export_marts_duckdb.py
+    deps:
+    - path: warehouse/dbt/hindcast/hindcast.duckdb
+      hash: md5
+      md5: 266d6ba1d9ee85a6cd50fef988810dce
+      size: 6828032
+      isexec: true
+    - path: warehouse/dvc/export_marts_duckdb.py
+      hash: md5
+      md5: 1b232b4501e66f3ffb9a250cf780fe52
+      size: 1996
+      isexec: true
+    outs:
+    - path: data/exports
+      hash: md5
+      md5: 8e22e59b365534d1ad35a79bd4ef80f4.dir
+      size: 1738330
+      nfiles: 13

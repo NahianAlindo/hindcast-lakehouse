@@ -1,0 +1,34 @@
+# Two real, `dvc repro`-able stages -- not a literal mirror of bronze->
+# silver->marts, because bronze itself isn't reproducible: it's OpenWeatherMap
+# API responses at a point in time that can't be replayed (docs/PLAN.md's
+# core domain constraint), so there's no `cmd` that regenerates it from
+# committed inputs. What *is* reproducible is silver->marts, given silver's
+# current live state in ADLS -- that's what these two stages actually cover.
+# `dvc repro` mainly earns its keep on code-change detection (edit a dbt
+# model, `dvc repro` knows dbt_build is stale); the weekly dvc_snapshot DAG
+# runs it on a schedule regardless, since data staleness (new bronze/silver
+# rows accruing) isn't something these deps can see.
+stages:
+  dbt_build:
+    cmd: cd warehouse/dbt/hindcast && dbt build --profiles-dir . --target duckdb
+    deps:
+      - warehouse/dbt/hindcast/models
+      - warehouse/dbt/hindcast/macros
+      - warehouse/dbt/hindcast/seeds
+      - warehouse/dbt/hindcast/snapshots
+      - warehouse/dbt/hindcast/dbt_project.yml
+      - warehouse/dbt/hindcast/profiles.yml
+    outs:
+      # Not pushed to the DVC remote -- it's a rebuildable intermediate
+      # (this run's local dbt build output), not the versioned artifact.
+      # data/exports/ below is what actually gets tagged and pushed.
+      - warehouse/dbt/hindcast/hindcast.duckdb:
+          push: false
+
+  export_marts:
+    cmd: python warehouse/dvc/export_marts_duckdb.py
+    deps:
+      - warehouse/dbt/hindcast/hindcast.duckdb
+      - warehouse/dvc/export_marts_duckdb.py
+    outs:
+      - data/exports
