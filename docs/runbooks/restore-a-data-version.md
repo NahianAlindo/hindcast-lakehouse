@@ -27,8 +27,14 @@ git checkout data-v2026.34
 #    AZURE_STORAGE_CONNECTION_STRING set (Key Vault secret
 #    `storage-connection-string`, or ask whoever has it — this one
 #    credential is the only thing not fully self-contained in the repo).
+#
+#    Target `data/exports` specifically, not a bare `dvc pull` -- the
+#    dbt_build stage's intermediate hindcast.duckdb is marked `push: false`
+#    in dvc.yaml (it's a rebuildable local artifact, never uploaded), so an
+#    untargeted `dvc pull` fails trying to restore something that was never
+#    pushed in the first place. Verified live: this exact failure mode.
 export AZURE_STORAGE_CONNECTION_STRING="<value>"
-uv run dvc pull
+uv run dvc pull data/exports
 
 # 4. Rebuild the star schema from the pulled Parquet, entirely locally.
 #    This does NOT re-run dbt against ADLS/Snowflake -- data/exports/*.parquet
