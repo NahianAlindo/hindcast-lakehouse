@@ -26,6 +26,14 @@ concurrency:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    env:
+      # sqlfluff's dbt templater fully compiles the project to resolve
+      # macros/refs, which means it parses profiles.yml eagerly -- the
+      # duckdb target's `secrets:` block reads this var via env_var(), so
+      # it's required just to *parse*, even though sqlfluff never actually
+      # opens a connection (verified live: lint failed on a clean runner
+      # with `EnvVarMissingError`, despite `dbt deps` alone not needing it).
+      AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
     steps:
       - uses: actions/checkout@v4
 
