@@ -70,6 +70,8 @@ services:
     build:
       context: ../..
       dockerfile: docker/airflow/Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     depends_on:
       postgres:
         condition: service_healthy

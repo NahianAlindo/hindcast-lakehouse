@@ -15,10 +15,12 @@ from client import get
 from config import load_locations
 from envelope import land_bronze
 from models import validate
+from observability import init_sentry, with_sentry_scope
 
 ENDPOINT = "air_quality"
 
 
+@with_sentry_scope(ENDPOINT)
 def fetch_and_land(loc: dict, run_id: str) -> bool:
     """Fetch current air pollution for one location and land it. Returns True if HTTP 200."""
     requested_at = datetime.now(timezone.utc)
@@ -50,6 +52,7 @@ def fetch_and_land(loc: dict, run_id: str) -> bool:
 
 
 def main() -> None:
+    init_sentry()
     run_id = uuid.uuid4().hex[:12]
     locations = load_locations()
     landed = sum(fetch_and_land(loc, run_id) for loc in locations)

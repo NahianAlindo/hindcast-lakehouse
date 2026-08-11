@@ -27,5 +27,15 @@ export AIRFLOW__CORE__FERNET_KEY
 AIRFLOW__CORE__FERNET_KEY="$(fetch_secret airflow-fernet-key)"
 export AIRFLOW__API_AUTH__JWT_SECRET
 AIRFLOW__API_AUTH__JWT_SECRET="$(fetch_secret airflow-jwt-secret)"
+# SENTRY_DSN_INGEST: the extractor's own exceptions (ingestion/hindcast_
+# extract/observability.py), reached via the ingest DAGs' direct TaskFlow
+# import of fetch_and_land -- same container, same env, no separate fetch
+# needed there. SENTRY_DSN_AIRFLOW: orchestration/airflow/config/
+# airflow_local_settings.py's task_policy, every task's failure across
+# every DAG.
+export SENTRY_DSN_INGEST
+SENTRY_DSN_INGEST="$(fetch_secret sentry-dsn-ingest)"
+export SENTRY_DSN_AIRFLOW
+SENTRY_DSN_AIRFLOW="$(fetch_secret sentry-dsn-airflow)"
 
 exec /usr/bin/dumb-init -- /entrypoint "$@"

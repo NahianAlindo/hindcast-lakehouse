@@ -5,7 +5,12 @@
 #   bash docker/airflow/deploy.sh
 set -euo pipefail
 
-VM_HOST="hindcast@$(az vm show -d --resource-group rg-hindcast-compute --name vm-hindcast --query publicIps -o tsv)"
+# tr -d '\r': az.exe accessed through WSL2's Windows-interop PATH emits
+# CRLF line endings -- bash's $(...) only strips the trailing \n, leaving a
+# literal \r embedded in the IP string, which corrupts the hostname just
+# enough for ssh to reject it outright ("hostname contains invalid
+# characters") without a more specific error pointing at the real cause.
+VM_HOST="hindcast@$(az vm show -d --resource-group rg-hindcast-compute --name vm-hindcast --query publicIps -o tsv | tr -d '\r')"
 REMOTE_DIR="/opt/hindcast/repo"
 KEY_VAULT="kv-hindcastjlbpfz"
 
@@ -44,6 +49,7 @@ ssh "${VM_HOST}" "cat > ${REMOTE_DIR}/docker/airflow/.env" <<EOF
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 AIRFLOW_ADMIN_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
 AIRFLOW_SQL_ALCHEMY_CONN=${AIRFLOW_SQL_ALCHEMY_CONN}
+GIT_COMMIT=$(git rev-parse HEAD)
 EOF
 unset POSTGRES_PASSWORD POSTGRES_PASSWORD_URLENC AIRFLOW_ADMIN_PASSWORD AIRFLOW_SQL_ALCHEMY_CONN
 

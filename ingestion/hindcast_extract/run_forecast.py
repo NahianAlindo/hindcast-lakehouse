@@ -26,11 +26,13 @@ from client import get
 from config import load_locations
 from envelope import land_bronze
 from models import validate
+from observability import init_sentry, with_sentry_scope
 from state import read_last_forecast_hashes, write_last_forecast_hashes
 
 ENDPOINT = "forecast"
 
 
+@with_sentry_scope(ENDPOINT)
 def fetch_and_land(loc: dict, run_id: str) -> tuple[bool, bool]:
     """Fetch the forecast for one location and land it. Returns (landed, is_new_model_run).
 
@@ -94,6 +96,7 @@ def fetch_and_land(loc: dict, run_id: str) -> tuple[bool, bool]:
 
 
 def main() -> None:
+    init_sentry()
     run_id = uuid.uuid4().hex[:12]
     locations = load_locations()
     landed = 0
