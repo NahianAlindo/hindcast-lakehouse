@@ -80,6 +80,12 @@ COPY transform/spark/jobs /opt/transform/jobs
 COPY warehouse/databricks/export_silver_snapshot.py /opt/transform/jobs/
 COPY warehouse/databricks/load_into_databricks.py /opt/transform/jobs/
 COPY warehouse/snowflake/load_into_snowflake.py /opt/transform/jobs/
+COPY warehouse/snowflake/emit_pipeline_metrics.py /opt/transform/jobs/
+# Flat PYTHONPATH=/opt/transform/jobs (below), not the nested repo-relative
+# layout ingestion/hindcast_extract's scripts assume -- so this lands
+# directly alongside the jobs that import it, bare `from datadog_metrics
+# import ...`, no sys.path hack needed here.
+COPY observability/datadog_metrics.py /opt/transform/jobs/
 
 ENV SPARK_ADLS_JARS_DIR=/opt/spark-jars
 ENV SPARK_MASTER=local[*]

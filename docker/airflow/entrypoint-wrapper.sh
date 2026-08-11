@@ -37,5 +37,10 @@ export SENTRY_DSN_INGEST
 SENTRY_DSN_INGEST="$(fetch_secret sentry-dsn-ingest)"
 export SENTRY_DSN_AIRFLOW
 SENTRY_DSN_AIRFLOW="$(fetch_secret sentry-dsn-airflow)"
+# hindcast.ingest.calls/.latency_ms/.forecast.new_model_run (docs/PLAN.md
+# Phase 7) -- client.py/run_forecast.py emit these directly from inside the
+# ingest DAGs' TaskFlow tasks, same container as everything else here.
+export DATADOG_API_KEY
+DATADOG_API_KEY="$(fetch_secret datadog-api-key)"
 
 exec /usr/bin/dumb-init -- /entrypoint "$@"

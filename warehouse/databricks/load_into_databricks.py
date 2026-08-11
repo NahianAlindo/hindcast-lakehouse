@@ -20,10 +20,13 @@ uses), DATABRICKS_HOST, DATABRICKS_TOKEN. Never hardcoded, never committed.
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests
 from azure.storage.blob import ContainerSasPermissions, generate_container_sas
+
+from datadog_metrics import submit_gauge
 
 STORAGE_ACCOUNT = "sthindcastjlbpfz"
 EXPORT_CONTAINER = "dbx-export"
@@ -84,6 +87,7 @@ def run_statement(host: str, token: str, sql: str) -> dict:
 
 
 def main() -> None:
+    started = time.monotonic()
     host = os.environ["DATABRICKS_HOST"].rstrip("/")
     token = os.environ["DATABRICKS_TOKEN"]
     sas = generate_sas()
@@ -112,6 +116,15 @@ def main() -> None:
         )
         rows = result["result"]["data_array"][0]
         print(f"[{table}] copy into {target}: {rows[1]} rows inserted")
+        # docs/PLAN.md Phase 7: hindcast.databricks.copy_into_rowcount
+        submit_gauge("hindcast.databricks.copy_into_rowcount", float(rows[1]), tags=[f"table:{table}"])
+
+    # docs/PLAN.md Phase 7: hindcast.databricks.sync_duration_s -- this
+    # script's own runtime (SAS generation + all 3 tables' CREATE/TRUNCATE/
+    # COPY INTO), not the whole databricks_sync DAG (which also runs the
+    # Spark export before this and a dbt build after, in two other
+    # containers -- there's no single process that sees all three).
+    submit_gauge("hindcast.databricks.sync_duration_s", time.monotonic() - started)
 
 
 if __name__ == "__main__":

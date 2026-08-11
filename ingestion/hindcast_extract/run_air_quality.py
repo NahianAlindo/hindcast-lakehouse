@@ -27,6 +27,7 @@ def fetch_and_land(loc: dict, run_id: str) -> bool:
     response = get(
         "/data/2.5/air_pollution",
         {"lat": loc["lat"], "lon": loc["lon"]},
+        endpoint=ENDPOINT,
     )
     payload = response.json() if response.status_code == 200 else {"error": response.text}
 

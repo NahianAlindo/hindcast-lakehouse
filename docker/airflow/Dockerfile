@@ -12,6 +12,11 @@ ENV GIT_COMMIT=${GIT_COMMIT}
 USER root
 COPY ingestion/hindcast_extract /opt/airflow/ingestion/hindcast_extract
 COPY ingestion/config /opt/airflow/ingestion/config
+# Same repo-root-relative layout as the source tree (.../ingestion/../ ->
+# .../observability), not an arbitrary path -- client.py locates this
+# directory via Path(__file__).resolve().parents[2] / "observability",
+# which only resolves correctly if that relative structure is preserved.
+COPY observability /opt/airflow/observability
 COPY orchestration/airflow/config/airflow_local_settings.py /opt/airflow/config/airflow_local_settings.py
 USER airflow
 

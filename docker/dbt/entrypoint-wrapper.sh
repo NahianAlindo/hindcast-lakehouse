@@ -33,17 +33,55 @@ fetch_snowflake_creds() {
   SNOWFLAKE_PASSWORD="$(fetch_secret snowflake-password)"
 }
 
+# hindcast.dbt.test_failures (docs/PLAN.md Phase 7), tagged by target -- run
+# `dbt build`, then parse the run_results.json artifact it always writes
+# rather than trying to hook this from inside a macro (dbt's on-run-end
+# Jinja context has the same `results` data, but emitting an HTTP metric
+# from SQL/Jinja would mean a run_query() roundabout; parsing the JSON
+# artifact dbt already produces is simpler and needs no dbt-side plumbing
+# at all). Not `exec`'d, unlike the elementary_report branch below, because
+# emitting the metric has to happen *after* the build finishes either way.
+run_dbt_build_and_emit_test_failures() {
+  local target="$1"
+  shift
+  set +e
+  dbt build --profiles-dir . --target "$target" "$@"
+  local exit_code=$?
+  set -e
+  python -c "
+import json
+import sys
+from datadog_metrics import submit_count
+try:
+    with open('target/run_results.json') as f:
+        results = json.load(f)['results']
+except FileNotFoundError:
+    sys.exit(0)  # dbt failed before writing any results at all
+failures = sum(
+    1 for r in results
+    if r['unique_id'].startswith('test.') and r['status'] in ('fail', 'error')
+)
+submit_count('hindcast.dbt.test_failures', failures, tags=['target:${target}'])
+print(f'hindcast.dbt.test_failures (target=${target}) = {failures}')
+"
+  exit "$exit_code"
+}
+
 case "$TARGET" in
   databricks)
     export DATABRICKS_HOST
     DATABRICKS_HOST="$(fetch_secret databricks-host)"
     export DATABRICKS_TOKEN
     DATABRICKS_TOKEN="$(fetch_secret databricks-token)"
-    exec dbt build --profiles-dir . --target databricks "$@"
+    export DATADOG_API_KEY
+    DATADOG_API_KEY="$(fetch_secret datadog-api-key)"
+    run_dbt_build_and_emit_test_failures databricks "$@"
     ;;
   snowflake)
     fetch_snowflake_creds
-    exec dbt build --profiles-dir . --target snowflake "$@"
+    export DATADOG_API_KEY
+    DATADOG_API_KEY="$(fetch_secret datadog-api-key)"
+    run_dbt_build_and_emit_test_failures snowflake "$@"
     ;;
   elementary_report)
     # Reads elementary's tables from whatever dbt_build_snowflake's last run

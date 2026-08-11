@@ -38,6 +38,7 @@ def main() -> None:
                     "start": int(chunk_start.timestamp()),
                     "end": int(chunk_end.timestamp()),
                 },
+                endpoint=ENDPOINT,
             )
             total_calls += 1
             payload = response.json() if response.status_code == 200 else {"error": response.text}

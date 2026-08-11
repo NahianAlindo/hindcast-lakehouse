@@ -19,8 +19,10 @@ standalone/CLI use.
 
 import hashlib
 import json
+import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from client import get
 from config import load_locations
@@ -28,6 +30,9 @@ from envelope import land_bronze
 from models import validate
 from observability import init_sentry, with_sentry_scope
 from state import read_last_forecast_hashes, write_last_forecast_hashes
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "observability"))
+from datadog_metrics import submit_count  # noqa: E402
 
 ENDPOINT = "forecast"
 
@@ -50,6 +55,7 @@ def fetch_and_land(loc: dict, run_id: str) -> tuple[bool, bool]:
     response = get(
         "/data/2.5/forecast",
         {"lat": loc["lat"], "lon": loc["lon"], "units": "metric"},
+        endpoint=ENDPOINT,
     )
     payload = response.json() if response.status_code == 200 else {"error": response.text}
 
@@ -75,6 +81,20 @@ def fetch_and_land(loc: dict, run_id: str) -> tuple[bool, bool]:
     is_new_model_run = last_hashes.get(loc["location_id"]) != payload_hash
     last_hashes[loc["location_id"]] = payload_hash
     write_last_forecast_hashes(last_hashes)
+
+    # docs/PLAN.md Phase 7: hindcast.forecast.new_model_run_ratio. Emitted
+    # per-location here, not as a pre-computed ratio in main() -- Airflow's
+    # owm_forecast_ingest DAG maps this over locations as separate task
+    # instances (see that DAG's dynamic task mapping) and never calls
+    # main()'s aggregate loop at all, so a main()-only ratio would silently
+    # never fire under the actual production execution path. The ratio
+    # itself is a dashboard-side formula (sum is_new:true / sum total),
+    # same pattern as monthly_call_budget_pct.
+    submit_count(
+        "hindcast.forecast.new_model_run",
+        1,
+        tags=[f"is_new:{str(is_new_model_run).lower()}"],
+    )
 
     land_bronze(
         endpoint=ENDPOINT,

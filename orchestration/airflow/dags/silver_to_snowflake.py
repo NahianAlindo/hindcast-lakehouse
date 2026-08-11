@@ -18,6 +18,11 @@ reinvented:
   3. hindcast-dbt:local, given "snowflake" as its command -- `dbt build
      --target snowflake`, rebuilding the full star schema against what #2
      just loaded.
+  4. emit_pipeline_metrics.py (hindcast-spark:local, same image) --
+     docs/PLAN.md Phase 7's warehouse-derived metrics (slot.
+     awaiting_actual_count, slot.closed_no_actual_ratio, match.
+     offset_minutes_p95), queried straight from fct_forecast_slot now that
+     #3 just rebuilt it.
 
 docs/PLAN.md originally sketched this as two separate DAGs
 (`silver_to_snowflake` + `dbt_build`) linked by Airflow Assets. Consolidated
@@ -83,7 +88,16 @@ def silver_to_snowflake():
         mount_tmp_dir=False,
     )
 
-    export >> load >> dbt_build
+    emit_metrics = DockerOperator(
+        task_id="emit_pipeline_metrics",
+        image=SPARK_IMAGE,
+        command="emit_pipeline_metrics.py",
+        docker_url=DOCKER_SOCKET_URL,
+        auto_remove="success",
+        mount_tmp_dir=False,
+    )
+
+    export >> load >> dbt_build >> emit_metrics
 
 
 silver_to_snowflake()

@@ -41,6 +41,13 @@ RUN pip install --no-cache-dir --only-binary :all: pip==25.2 \
 
 WORKDIR /opt/dbt/hindcast
 COPY warehouse/dbt/hindcast /opt/dbt/hindcast
+# Not under models/macros/tests -- dbt only parses model-paths/macro-paths/
+# test-paths (dbt_project.yml), so a stray .py file at the project root is
+# invisible to it. Lives here (not a separate dir + PYTHONPATH entry) so
+# entrypoint-wrapper.sh's post-build `python -c` -- run from this same
+# WORKDIR -- can `from datadog_metrics import submit_count` via Python's
+# own cwd-relative import resolution, no extra plumbing.
+COPY observability/datadog_metrics.py /opt/dbt/hindcast/datadog_metrics.py
 
 COPY docker/dbt/entrypoint-wrapper.sh /entrypoint-wrapper.sh
 
