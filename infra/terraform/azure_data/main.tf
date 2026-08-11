@@ -266,6 +266,56 @@ resource "azurerm_key_vault_secret" "github_pat" {
   }
 }
 
+# Phase 7: Datadog metrics/dashboard/monitors + Sentry exception tracking.
+# Same out-of-band pattern as every secret above -- these were set directly
+# via `az keyvault secret set` before this Terraform resource existed
+# (verified live, non-placeholder values already present), so `ignore_changes`
+# here is what keeps `terraform apply` from trying to stomp them back to the
+# placeholder.
+resource "azurerm_key_vault_secret" "datadog_api_key" {
+  name         = "datadog-api-key"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "datadog_app_key" {
+  name         = "datadog-app-key"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "sentry_dsn_ingest" {
+  name         = "sentry-dsn-ingest"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "sentry_dsn_airflow" {
+  name         = "sentry-dsn-airflow"
+  value        = "placeholder-set-via-az-cli"
+  key_vault_id = azurerm_key_vault.this.id
+  depends_on   = [azurerm_role_assignment.kv_admin_self]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # Airflow's web UI admin login. Unlike owm_api_key/storage_connection_string/
 # airflow_fernet_key above (fetched at container runtime via Managed Identity),
 # this is consumed at docker-compose render time via a VM-local .env file
