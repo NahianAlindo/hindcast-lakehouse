@@ -33,15 +33,9 @@ successive forecasts revise the prediction and closed once the actual lands.
 - **Versioning** — DVC for warehouse exports, git tags resolved to
   immutable image digests for full pipeline-run traceability.
 
-## Docs
-
-- [`docs/PLAN.md`](docs/PLAN.md) — full architecture, star schema design,
-  and phased build plan.
 - [dbt docs site](http://blaze-dev.me/hindcast-lakehouse/) — model lineage,
   column descriptions, test coverage.
 
 ## Status
-
-Ingestion has been live since Week 2 and has not stopped. Phases 0–8 are
 built and verified live: ingestion, infrastructure, transformation, the
 star schema, observability/data quality, and CI/CD.
