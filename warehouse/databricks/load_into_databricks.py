@@ -21,11 +21,10 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 from azure.storage.blob import ContainerSasPermissions, generate_container_sas
-
 from datadog_metrics import submit_gauge
 
 STORAGE_ACCOUNT = "sthindcastjlbpfz"
@@ -62,7 +61,7 @@ TABLES: dict[str, str] = {
 
 def generate_sas() -> str:
     account_key = os.environ["AZURE_STORAGE_ACCOUNT_KEY"]
-    expiry = datetime.now(timezone.utc) + timedelta(hours=3)
+    expiry = datetime.now(UTC) + timedelta(hours=3)
     return generate_container_sas(
         account_name=STORAGE_ACCOUNT,
         container_name=EXPORT_CONTAINER,
@@ -98,9 +97,7 @@ def main() -> None:
         target = f"{DATABRICKS_SCHEMA}.{table}"
         source = f"abfss://{EXPORT_CONTAINER}@{STORAGE_ACCOUNT}.dfs.core.windows.net/{table}"
 
-        run_statement(
-            host, token, f"CREATE TABLE IF NOT EXISTS {target} ({ddl}) USING DELTA"
-        )
+        run_statement(host, token, f"CREATE TABLE IF NOT EXISTS {target} ({ddl}) USING DELTA")
         # TRUNCATE first: COPY INTO tracks which source files it has already
         # loaded and skips them on re-run (its idempotency guarantee) --
         # exactly wrong for this use case, where export_silver_snapshot.py
@@ -117,7 +114,9 @@ def main() -> None:
         rows = result["result"]["data_array"][0]
         print(f"[{table}] copy into {target}: {rows[1]} rows inserted")
         # docs/PLAN.md Phase 7: hindcast.databricks.copy_into_rowcount
-        submit_gauge("hindcast.databricks.copy_into_rowcount", float(rows[1]), tags=[f"table:{table}"])
+        submit_gauge(
+            "hindcast.databricks.copy_into_rowcount", float(rows[1]), tags=[f"table:{table}"]
+        )
 
     # docs/PLAN.md Phase 7: hindcast.databricks.sync_duration_s -- this
     # script's own runtime (SAS generation + all 3 tables' CREATE/TRUNCATE/

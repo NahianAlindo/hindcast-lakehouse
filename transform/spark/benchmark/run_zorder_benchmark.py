@@ -15,18 +15,15 @@ import time
 from functools import partial
 from pathlib import Path
 
+from metrics import timed_run
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-
-from metrics import timed_run
 from run_spark_benchmark import MILESTONE_HOURS, build_dim_location
 
 
 def run_milestones_simple(spark, source, dim):
-    milestones = spark.createDataFrame(
-        [(float(h),) for h in MILESTONE_HOURS], ["milestone_hours"]
-    )
+    milestones = spark.createDataFrame([(float(h),) for h in MILESTONE_HOURS], ["milestone_hours"])
     candidates = (
         source.withColumn("lead_time_hours", F.col("lead_time_minutes") / 60)
         .crossJoin(milestones)
@@ -35,9 +32,9 @@ def run_milestones_simple(spark, source, dim):
             F.abs(F.col("lead_time_hours") - F.col("milestone_hours")),
         )
     )
-    window = Window.partitionBy(
-        "location_id", "valid_ts", "milestone_hours"
-    ).orderBy(F.col("distance_hours").asc())
+    window = Window.partitionBy("location_id", "valid_ts", "milestone_hours").orderBy(
+        F.col("distance_hours").asc()
+    )
     selected = (
         candidates.withColumn("_rn", F.row_number().over(window))
         .where(F.col("_rn") == 1)
@@ -52,7 +49,9 @@ def _count_milestones(spark, delta_df, dim) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", required=True, help="Parquet path to load and re-write as Delta")
+    parser.add_argument(
+        "--source", required=True, help="Parquet path to load and re-write as Delta"
+    )
     parser.add_argument("--delta-path", required=True)
     parser.add_argument("--rows", type=int, required=True)
     parser.add_argument("--results", required=True)
@@ -93,9 +92,7 @@ def main() -> None:
 
     for zorder in (False, True):
         if zorder:
-            spark.sql(
-                f"OPTIMIZE delta.`{delta_path}` ZORDER BY (location_id, valid_ts)"
-            )
+            spark.sql(f"OPTIMIZE delta.`{delta_path}` ZORDER BY (location_id, valid_ts)")
 
         delta_df = spark.read.format("delta").load(str(delta_path))
 

@@ -102,12 +102,12 @@
 -- row-generation idiom, and GENERATOR's ROWCOUNT needs a fixed literal (no
 -- dynamic-expression form verified), so this over-generates and filters
 -- down with a WHERE rather than computing an exact day count at compile time.
--- Returns a full SELECT statement (a CTE body, not a FROM-clause fragment
+-- Returns a complete query (a CTE body, not a bare table-reference snippet
 -- like hour_series() above) outputting one `date_day` column -- Databricks'
--- already-verified shape uses explode() as a SELECT-list generator with no
--- FROM clause at all, which a FROM-fragment macro can't represent without
--- guessing at Spark's newer (unverified here) FROM-clause generator syntax,
--- so this macro swaps the whole statement instead, same as the original
+-- already-verified shape uses explode() as a column-list generator with no
+-- table reference at all, which a table-reference-only macro can't represent
+-- without guessing at Spark's newer (unverified here) row-generator syntax,
+-- so this macro swaps the whole query instead, same as the original
 -- per-model target.type conditional block it replaces.
 {% macro date_series(start_date, end_date) %}
   {%- if is_snowflake() -%}

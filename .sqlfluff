@@ -1,0 +1,33 @@
+[sqlfluff]
+templater = dbt
+dialect = duckdb
+sql_file_exts = .sql
+# Kimball-star column names are deliberately long and descriptive
+# (docs/PLAN.md §6: temp_actual_window_mean_c, actual_lead_hours_120h,
+# etc.) -- L016/L063-equivalent line-length rules would fight the schema's
+# own naming, not catch real problems.
+max_line_length = 120
+# RF04 (keywords shouldn't be used as identifiers) and RF06 (unnecessary
+# quoted identifiers) directly conflict on this project's real column names
+# (year, month, hour, label, no -- calendar/measurement vocabulary, not
+# actually reserved in the duckdb dialect per RF06 itself): RF04 wants them
+# quoted, RF06 then flags that same quoting as unnecessary. Excluding RF04
+# rather than fighting a rule pair that disagrees with itself.
+#
+# AL05 (unused table alias) is a false positive on `(values (...)) as
+# t(col_name)` -- t is never referenced as `t.col`, but it's syntactically
+# required to attach the column list to an inline VALUES derived table.
+# sqlfluff's autofixer actually stripped this alias in a bulk `fix` pass
+# once (it doesn't understand the alias is load-bearing for the column
+# list, not just a correlation name), silently breaking 4 models until
+# caught by `dbt build`. Never let a fixer touch these VALUES blocks again.
+exclude_rules = RF04, AL05
+
+[sqlfluff:templater:dbt]
+project_dir = warehouse/dbt/hindcast
+profiles_dir = warehouse/dbt/hindcast
+profile = hindcast
+target = duckdb
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower

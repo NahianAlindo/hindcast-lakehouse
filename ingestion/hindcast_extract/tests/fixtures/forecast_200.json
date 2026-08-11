@@ -1,0 +1,14 @@
+{
+  "cod": "200",
+  "cnt": 1,
+  "list": [
+    {
+      "dt": 1723400000,
+      "main": {"temp": 22.5, "feels_like": 22.1, "temp_min": 20.0, "temp_max": 24.0, "pressure": 1015, "humidity": 55},
+      "weather": [{"id": 800, "main": "Clear", "description": "clear sky", "icon": "01d"}],
+      "dt_txt": "2026-08-11 12:00:00",
+      "pop": 0.1
+    }
+  ],
+  "city": {"id": 123, "name": "Oshawa", "coord": {"lon": -78.85, "lat": 43.9}}
+}

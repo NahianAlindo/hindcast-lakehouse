@@ -16,7 +16,6 @@ from datetime import datetime
 from io import BytesIO
 
 from azure.storage.blob import BlobServiceClient
-
 from config import AZURE_STORAGE_CONNECTION_STRING, BLOB_CONTAINER_BRONZE, EXTRACTOR_VERSION
 
 _blob_service_client: BlobServiceClient | None = None

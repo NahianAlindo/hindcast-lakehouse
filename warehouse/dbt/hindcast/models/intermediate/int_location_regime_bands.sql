@@ -68,31 +68,32 @@ skill as (
         f.location_id,
         avg(abs(f.temp_c - m.temp_actual_c)) as forecast_mae,
         avg(abs(p.temp_persistence_c - m.temp_actual_c)) as persistence_mae
-    from forecast_nearest f
-    inner join {{ ref('int_observation_slot_matched') }} m
-            on m.location_id = f.location_id and m.valid_ts_utc = f.valid_ts_utc
-    inner join {{ ref('int_persistence_baseline') }} p
-            on p.location_id = f.location_id and p.valid_ts_utc = f.valid_ts_utc
-    where f.rn = 1
-      and m.temp_actual_c is not null
-      and p.temp_persistence_c is not null
+    from forecast_nearest as f
+    inner join {{ ref('int_observation_slot_matched') }} as m
+        on f.location_id = m.location_id and f.valid_ts_utc = m.valid_ts_utc
+    inner join {{ ref('int_persistence_baseline') }} as p
+        on f.location_id = p.location_id and f.valid_ts_utc = p.valid_ts_utc
+    where
+        f.rn = 1
+        and m.temp_actual_c is not null
+        and p.temp_persistence_c is not null
     group by f.location_id
 )
 
 select
-    coalesce(t.location_id, v.location_id, s.location_id) as location_id,
     t.trailing_mean_temp_c,
     v.trailing_temp_volatility,
+    coalesce(t.location_id, v.location_id, s.location_id) as location_id,
     case
         when s.persistence_mae is null or s.persistence_mae = 0 then null
         else 1.0 - (s.forecast_mae / s.persistence_mae)
     end as skill_score,
     case
         when t.trailing_mean_temp_c is null then null
-        when t.trailing_mean_temp_c < 0   then 'Cold'
-        when t.trailing_mean_temp_c < 10  then 'Cool'
-        when t.trailing_mean_temp_c < 20  then 'Mild'
-        when t.trailing_mean_temp_c < 28  then 'Warm'
+        when t.trailing_mean_temp_c < 0 then 'Cold'
+        when t.trailing_mean_temp_c < 10 then 'Cool'
+        when t.trailing_mean_temp_c < 20 then 'Mild'
+        when t.trailing_mean_temp_c < 28 then 'Warm'
         else 'Hot'
     end as thermal_regime,
     case
@@ -107,6 +108,9 @@ select
         when 1.0 - (s.forecast_mae / nullif(s.persistence_mae, 0)) >= 0.0 then 'Medium'
         else 'Low'
     end as forecastability_tier
-from thermal t
-full outer join volatility v using (location_id)
-full outer join skill s using (location_id)
+from thermal as t
+full outer join volatility as v on t.location_id = v.location_id
+-- coalesce, not t.location_id alone: a full outer join chain means
+-- t.location_id can be null for a row that only matched in v, and this
+-- join still needs to find that row's skill data by location.
+full outer join skill as s on coalesce(t.location_id, v.location_id) = s.location_id

@@ -12,41 +12,42 @@ with slot as (
 
 unpivoted as (
     {% for h in milestones %}
-    select
-        location_key,
-        location_regime_key,
-        valid_date_key,
-        valid_time_utc_key,
-        valid_time_local_key,
-        pipeline_run_key,
-        location_id,
-        valid_ts_utc,
-        {{ h }} as milestone_hours,
-        temp_fcst_{{ h }}h        as temp_fcst,
-        pop_fcst_{{ h }}h         as pop_fcst,
-        wind_speed_fcst_{{ h }}h  as wind_speed_fcst,
-        condition_key_fcst_{{ h }}h as condition_key_fcst,
-        issued_at_{{ h }}h        as issued_at,
-        actual_lead_hours_{{ h }}h as actual_lead_hours,
-        temp_actual_c,
-        pop_actual_binary,
-        wind_speed_actual_ms,
-        wind_deg_actual,
-        condition_key_actual,
-        abs_err_temp_{{ h }}h     as abs_err_temp,
-        signed_err_temp_{{ h }}h  as signed_err_temp,
-        sq_err_temp_{{ h }}h      as sq_err_temp,
-        brier_{{ h }}h            as brier,
-        wind_dir_circ_err_{{ h }}h as wind_dir_circ_err,
-        slot_status,
-        dq_status
-    from slot
-    {{ "union all" if not loop.last }}
+        select
+            location_key,
+            location_regime_key,
+            valid_date_key,
+            valid_time_utc_key,
+            valid_time_local_key,
+            pipeline_run_key,
+            location_id,
+            valid_ts_utc,
+            {{ h }} as milestone_hours,
+            temp_fcst_{{ h }}h as temp_fcst,
+            pop_fcst_{{ h }}h as pop_fcst,
+            wind_speed_fcst_{{ h }}h as wind_speed_fcst,
+            condition_key_fcst_{{ h }}h as condition_key_fcst,
+            issued_at_{{ h }}h as issued_at,
+            actual_lead_hours_{{ h }}h as actual_lead_hours,
+            temp_actual_c,
+            pop_actual_binary,
+            wind_speed_actual_ms,
+            wind_deg_actual,
+            condition_key_actual,
+            abs_err_temp_{{ h }}h as abs_err_temp,
+            signed_err_temp_{{ h }}h as signed_err_temp,
+            sq_err_temp_{{ h }}h as sq_err_temp,
+            brier_{{ h }}h as brier,
+            wind_dir_circ_err_{{ h }}h as wind_dir_circ_err,
+            slot_status,
+            dq_status
+        from slot
+        {{ "union all" if not loop.last }}
     {% endfor %}
 )
 
 select
-    {{ dbt_utils.generate_surrogate_key(['u.location_id', 'u.valid_ts_utc', 'u.milestone_hours']) }} as forecast_error_key,
+    {{ dbt_utils.generate_surrogate_key(['u.location_id', 'u.valid_ts_utc', 'u.milestone_hours']) }}
+        as forecast_error_key,
     u.location_key,
     u.location_regime_key,
     u.valid_date_key,
@@ -75,5 +76,5 @@ select
     u.wind_dir_circ_err,
     u.slot_status,
     u.dq_status
-from unpivoted u
-left join {{ ref('dim_lead_time_bucket') }} lb on lb.milestone_hours = u.milestone_hours
+from unpivoted as u
+left join {{ ref('dim_lead_time_bucket') }} as lb on u.milestone_hours = lb.milestone_hours

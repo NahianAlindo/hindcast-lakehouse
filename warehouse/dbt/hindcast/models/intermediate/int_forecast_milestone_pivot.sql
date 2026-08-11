@@ -8,11 +8,12 @@
 {% set milestones = var('milestone_hours') %}
 
 with milestone_hours as (
-    select * from (values
+    select * from (
+        values
         {% for h in milestones %}
-        ({{ h }}){% if not loop.last %},{% endif %}
+            ({{ h }}){% if not loop.last %},{% endif %}
         {% endfor %}
-    ) as t(milestone_hours)
+    ) as t (milestone_hours)
 ),
 
 candidates as (
@@ -29,10 +30,11 @@ candidates as (
         f.weather_code,
         f.weather_main,
         m.milestone_hours
-    from {{ ref('int_forecast_with_leadtime') }} f
-    inner join milestone_hours m
-        on f.lead_time_hours >= m.milestone_hours
-       and f.lead_time_hours <  m.milestone_hours + 3
+    from {{ ref('int_forecast_with_leadtime') }} as f
+    inner join milestone_hours as m
+        on
+            f.lead_time_hours >= m.milestone_hours
+            and f.lead_time_hours < m.milestone_hours + 3
 )
 
 select

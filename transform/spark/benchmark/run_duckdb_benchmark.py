@@ -77,7 +77,9 @@ def main() -> None:
     query = QUERY_TEMPLATE.format(milestones=MILESTONE_HOURS)
 
     start = time.perf_counter()
-    result = con.execute(query).fetchone()[0]
+    result_row = con.execute(query).fetchone()
+    assert result_row is not None
+    result = result_row[0]
     elapsed = time.perf_counter() - start
 
     record = {

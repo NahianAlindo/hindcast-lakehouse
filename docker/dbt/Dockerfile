@@ -30,7 +30,7 @@ FROM python:3.11-slim
 # code imports (hit this live: ImportError at `edr report` runtime, not at
 # install time, since pip's resolver considered 1.6.2 a valid solution).
 RUN pip install --no-cache-dir --only-binary :all: pip==25.2 \
-    && pip install --no-cache-dir --only-binary :all: --no-binary ratelimit,grapheme \
+    && pip install --no-cache-dir --only-binary :all: --no-binary grapheme,ratelimit \
        alive-progress==2.3.1 \
        azure-identity==1.25.3 \
        azure-keyvault-secrets==4.11.0 \

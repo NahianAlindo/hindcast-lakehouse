@@ -9,12 +9,13 @@ run_air_quality_backfill.py.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from client import get
 from config import load_locations
 from envelope import land_bronze
 from models import validate
+
 from observability import init_sentry, with_sentry_scope
 
 ENDPOINT = "air_quality"
@@ -23,7 +24,7 @@ ENDPOINT = "air_quality"
 @with_sentry_scope(ENDPOINT)
 def fetch_and_land(loc: dict, run_id: str) -> bool:
     """Fetch current air pollution for one location and land it. Returns True if HTTP 200."""
-    requested_at = datetime.now(timezone.utc)
+    requested_at = datetime.now(UTC)
     response = get(
         "/data/2.5/air_pollution",
         {"lat": loc["lat"], "lon": loc["lon"]},
@@ -35,7 +36,10 @@ def fetch_and_land(loc: dict, run_id: str) -> bool:
     if response.status_code == 200:
         is_valid, validation_error = validate(ENDPOINT, payload)
         if not is_valid:
-            print(f"[{ENDPOINT}] {loc['location_id']} -> validation failed (landing anyway): {validation_error}")
+            print(
+                f"[{ENDPOINT}] {loc['location_id']} -> "
+                f"validation failed (landing anyway): {validation_error}"
+            )
 
     land_bronze(
         endpoint=ENDPOINT,

@@ -12,11 +12,11 @@
 {% set milestones = var('milestone_hours') %}
 
 {% for h in milestones %}
-select
-    {{ h }} as milestone_hours,
-    avg(actual_lead_hours) as mean_actual_lead_hours
-from {{ ref('int_forecast_milestone_pivot') }}
-where milestone_hours = {{ h }}
-having avg(actual_lead_hours) < {{ h }} or avg(actual_lead_hours) >= {{ h + 3 }}
-{% if not loop.last %}union all{% endif %}
+    select
+        {{ h }} as milestone_hours,
+        avg(actual_lead_hours) as mean_actual_lead_hours
+    from {{ ref('int_forecast_milestone_pivot') }}
+    where milestone_hours = {{ h }}
+    having avg(actual_lead_hours) < {{ h }} or avg(actual_lead_hours) >= {{ h + 3 }}
+    {% if not loop.last %}union all{% endif %}
 {% endfor %}

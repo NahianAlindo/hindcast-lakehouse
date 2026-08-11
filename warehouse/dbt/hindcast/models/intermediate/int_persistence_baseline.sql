@@ -11,7 +11,9 @@
 {% set tolerance = var('actual_match_tolerance_minutes') %}
 
 with slots as (
-    select distinct location_id, valid_ts_utc
+    select distinct
+        location_id,
+        valid_ts_utc
     from {{ ref('int_forecast_with_leadtime') }}
 ),
 
@@ -33,11 +35,12 @@ matched as (
             when o.weather_code between 300 and 622 then 1.0
             else 0.0
         end as pop_persistence
-    from lookback l
-    left join {{ ref('stg_owm__current') }} o
-           on o.location_id = l.location_id
-          and o.obs_ts_utc between l.lookback_ts - interval '{{ tolerance }} minutes'
-                                and l.lookback_ts + interval '{{ tolerance }} minutes'
+    from lookback as l
+    left join {{ ref('stg_owm__current') }} as o
+        on
+            l.location_id = o.location_id
+            and o.obs_ts_utc between l.lookback_ts - interval '{{ tolerance }} minutes'
+            and l.lookback_ts + interval '{{ tolerance }} minutes'
     qualify row_number() over (
         partition by l.location_id, l.valid_ts_utc
         order by abs({{ datediff_seconds('o.obs_ts_utc', 'l.lookback_ts') }}) asc

@@ -45,7 +45,9 @@ def main() -> None:
     for schema, table in tables:
         out_path = EXPORT_DIR / f"{table}.parquet"
         con.execute(f"COPY {schema}.{table} TO '{out_path}' (FORMAT parquet)")
-        rows = con.execute(f"SELECT COUNT(*) FROM {schema}.{table}").fetchone()[0]
+        count_row = con.execute(f"SELECT COUNT(*) FROM {schema}.{table}").fetchone()
+        assert count_row is not None
+        rows = count_row[0]
         print(f"[{schema}.{table}] exported {rows} rows to {out_path}")
 
     con.close()

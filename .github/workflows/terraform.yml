@@ -1,0 +1,58 @@
+name: terraform
+
+# Phase 8 (docs/PLAN.md): fmt + validate only, deliberately -- a real
+# speculative `terraform plan` on every PR (the usual CI pattern) needs
+# Azure Resource Manager credentials from the runner, and this tenant
+# blocks both Service Principal and OIDC/Workload-Identity-Federation
+# creation for students (CLAUDE.md's non-negotiable constraints). There is
+# no workaround for that -- ARM auth is a hard structural blocker here, not
+# a judgment call -- so `apply` (and any real `plan`) stays a manual, local
+# `terraform apply` from an already-`az login`'d shell, same as every applied
+# change so far. This job still catches real, cheap-to-catch mistakes:
+# formatting drift and internal config errors (bad references, type
+# mismatches, missing required arguments) via `terraform validate
+# -backend=false`, which needs no cloud credentials at all since it never
+# touches the Terraform Cloud backend or Azure's API.
+
+on:
+  push:
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform.yml"
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt-and-validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace: [azure_data, azure_compute]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: terraform fmt -check
+        working-directory: infra/terraform/${{ matrix.workspace }}
+        run: terraform fmt -check -recursive
+
+      # -backend=false: skips Terraform Cloud entirely, so this needs no
+      # TF_TOKEN and no Azure credentials -- it only checks the config
+      # against the provider schemas it downloads from the public registry.
+      - name: terraform init (no backend)
+        working-directory: infra/terraform/${{ matrix.workspace }}
+        run: terraform init -backend=false
+
+      - name: terraform validate
+        working-directory: infra/terraform/${{ matrix.workspace }}
+        run: terraform validate

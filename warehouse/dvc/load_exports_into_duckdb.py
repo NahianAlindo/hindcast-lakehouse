@@ -27,9 +27,7 @@ def schema_for(table_name: str) -> str:
 def main() -> None:
     parquet_files = sorted(EXPORT_DIR.glob("*.parquet"))
     if not parquet_files:
-        raise RuntimeError(
-            f"No Parquet files in {EXPORT_DIR} -- run `dvc pull` first."
-        )
+        raise RuntimeError(f"No Parquet files in {EXPORT_DIR} -- run `dvc pull` first.")
 
     con = duckdb.connect(OUT_DB)
     for schema in ("main_core", "main_facts"):
@@ -39,10 +37,11 @@ def main() -> None:
         table = path.stem
         schema = schema_for(table)
         con.execute(
-            f"CREATE OR REPLACE TABLE {schema}.{table} AS "
-            f"SELECT * FROM read_parquet('{path}')"
+            f"CREATE OR REPLACE TABLE {schema}.{table} AS SELECT * FROM read_parquet('{path}')"
         )
-        rows = con.execute(f"SELECT COUNT(*) FROM {schema}.{table}").fetchone()[0]
+        count_row = con.execute(f"SELECT COUNT(*) FROM {schema}.{table}").fetchone()
+        assert count_row is not None
+        rows = count_row[0]
         print(f"[{schema}.{table}] loaded {rows} rows from {path}")
 
     con.close()

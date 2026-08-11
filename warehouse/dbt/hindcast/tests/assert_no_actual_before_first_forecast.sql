@@ -9,5 +9,6 @@ select
     first_forecast_at,
     actual_obs_ts
 from {{ ref('fct_forecast_slot') }}
-where actual_obs_ts is not null
-  and actual_obs_ts < first_forecast_at
+where
+    actual_obs_ts is not null
+    and actual_obs_ts < first_forecast_at

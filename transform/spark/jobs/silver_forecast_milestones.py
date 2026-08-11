@@ -28,9 +28,7 @@ def main() -> None:
     spark = build_spark_session("silver_forecast_milestones")
 
     source = spark.read.format("delta").load(silver_path(SOURCE_TABLE))
-    milestones = spark.createDataFrame(
-        [(float(h),) for h in MILESTONE_HOURS], ["milestone_hours"]
-    )
+    milestones = spark.createDataFrame([(float(h),) for h in MILESTONE_HOURS], ["milestone_hours"])
 
     candidates = (
         source.withColumn("lead_time_hours", F.col("lead_time_minutes") / 60)
@@ -41,9 +39,9 @@ def main() -> None:
         )
     )
 
-    window = Window.partitionBy(
-        "location_id", "valid_ts", "milestone_hours"
-    ).orderBy(F.col("distance_hours").asc())
+    window = Window.partitionBy("location_id", "valid_ts", "milestone_hours").orderBy(
+        F.col("distance_hours").asc()
+    )
 
     selected = (
         candidates.withColumn("_rn", F.row_number().over(window))

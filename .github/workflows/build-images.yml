@@ -1,0 +1,131 @@
+name: build-images
+
+# Phase 8 (docs/PLAN.md): "DAG/Spark/dbt code ships baked into versioned
+# Docker images, not git-sync'd from main" (CLAUDE.md) -- this is the job
+# that actually produces those versioned images. Triggered on a git tag
+# push (not every commit to master): the image-per-tag story is what makes
+# "git tag -> image digest" answerable via dim_pipeline_run, and building
+# on every push would just churn GHCR storage for commits nobody deploys.
+#
+# 4 images, not the 3 docs/PLAN.md's original list named (hindcast-extract
+# doesn't exist as a standalone image -- the extractor ships baked into
+# hindcast-airflow, run by Airflow's DAGs directly) plus hindcast-dvc (built
+# for the dvc_snapshot DAG, not in the plan's original list but real and
+# already running on the VM as :local).
+#
+# GHCR auth uses GITHUB_TOKEN (packages:write permission below) -- unlike
+# Azure ARM, this isn't blocked by the tenant restriction that rules out
+# Service Principal/OIDC for Azure specifically (CLAUDE.md); GHCR push from
+# Actions is a GitHub-native credential, not an Azure one.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve tag
+        id: ref
+        run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push hindcast-airflow
+        id: airflow
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/airflow/Dockerfile
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-airflow:${{ steps.ref.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-airflow:latest
+
+      - name: Build & push hindcast-spark
+        id: spark
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/spark/Dockerfile
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-spark:${{ steps.ref.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-spark:latest
+
+      - name: Build & push hindcast-dbt
+        id: dbt
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/dbt/Dockerfile
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-dbt:${{ steps.ref.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-dbt:latest
+
+      - name: Build & push hindcast-dvc
+        id: dvc
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/dvc/Dockerfile
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-dvc:${{ steps.ref.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-dvc:latest
+
+      - name: Write deploy/manifest.json
+        run: |
+          mkdir -p deploy
+          cat > deploy/manifest.json <<EOF
+          {
+            "tag": "${{ steps.ref.outputs.tag }}",
+            "git_commit": "${{ github.sha }}",
+            "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "images": {
+              "hindcast-airflow": "${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-airflow@${{ steps.airflow.outputs.digest }}",
+              "hindcast-spark": "${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-spark@${{ steps.spark.outputs.digest }}",
+              "hindcast-dbt": "${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-dbt@${{ steps.dbt.outputs.digest }}",
+              "hindcast-dvc": "${{ env.REGISTRY }}/${{ github.repository_owner }}/hindcast-dvc@${{ steps.dvc.outputs.digest }}"
+            }
+          }
+          EOF
+          cat deploy/manifest.json
+
+      # deploy.yml (workflow_dispatch, takes a git tag) downloads this by
+      # run -- not committed to the repo, since a tag's manifest is exactly
+      # the kind of build-output artifact that shouldn't live in git history.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ steps.ref.outputs.tag }}
+          path: deploy/manifest.json
+          retention-days: 90

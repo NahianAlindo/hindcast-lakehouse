@@ -10,14 +10,15 @@ import time
 from pathlib import Path
 
 import httpx
-
 from config import OWM_API_KEY, OWM_BASE_URL
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "observability"))
 from datadog_metrics import submit_count, submit_distribution  # noqa: E402
 
 
-def get(path: str, params: dict, endpoint: str = "unknown", max_attempts: int = 5) -> httpx.Response:
+def get(
+    path: str, params: dict, endpoint: str = "unknown", max_attempts: int = 5
+) -> httpx.Response:
     query = {**params, "appid": OWM_API_KEY}
     response = None
     started = time.monotonic()
@@ -31,6 +32,7 @@ def get(path: str, params: dict, endpoint: str = "unknown", max_attempts: int = 
             time.sleep(2**attempt)
             continue
         break
+    assert response is not None, "max_attempts must be >= 1"
 
     # docs/PLAN.md Phase 7: hindcast.ingest.calls / .latency_ms. Tagged by
     # final status only (not each retried attempt) -- one call from the

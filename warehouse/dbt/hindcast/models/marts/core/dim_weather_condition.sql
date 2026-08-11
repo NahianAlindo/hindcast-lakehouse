@@ -3,7 +3,11 @@
 -- is_precipitation/is_severe are derived here rather than baked into the
 -- seed, since they're business classification, not raw vendor data.
 with base as (
-    select code, description, icon from {{ ref('owm_weather_conditions') }}
+    select
+        code,
+        description,
+        icon
+    from {{ ref('owm_weather_conditions') }}
 )
 
 select
@@ -17,7 +21,7 @@ select
         when code between 500 and 531 then 'Rain'
         when code between 600 and 622 then 'Snow'
         when code between 701 and 781 then 'Atmosphere'
-        when code = 800               then 'Clear'
+        when code = 800 then 'Clear'
         when code between 801 and 804 then 'Clouds'
     end as condition_group,
     -- Higher = more severe. Clear/Clouds are benign; thunderstorms and

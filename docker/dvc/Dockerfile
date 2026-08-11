@@ -12,10 +12,6 @@ FROM python:3.11-slim
 # fresh clone per run also means no persistent git state on the VM's disk,
 # consistent with "the VM is cattle" (Phase 1): the clone lives only inside
 # this one `docker run --rm` container and disappears when it exits.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
 # Versions match this repo's own pyproject.toml/uv.lock resolution
 # (dbt-core, dbt-duckdb, dvc), same discipline as every other Dockerfile
 # here. dvc-azure is the DVC remote adapter for Azure Blob (matches this
@@ -32,7 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # compiled extension, so this doesn't reopen the arbitrary-build-script risk
 # `--only-binary :all:` exists to avoid (contrast pyspark's wheelbuilder
 # stage above, which exists precisely because that risk was real there).
-RUN pip install --no-cache-dir --only-binary :all: pip==25.2 \
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --only-binary :all: pip==25.2 \
     && pip install --no-cache-dir --only-binary :all: --no-binary antlr4-python3-runtime \
        antlr4-python3-runtime==4.9.3 \
        azure-identity==1.25.3 \

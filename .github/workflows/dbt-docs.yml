@@ -1,0 +1,74 @@
+name: dbt-docs
+
+# Phase 8 (docs/PLAN.md): `dbt docs generate` -> GitHub Pages, on every push
+# to master. Same duckdb target as ci.yml's dbt-build job (real silver data
+# off ADLS via profiles.yml's azure+delta extensions, read-only) -- the
+# generated docs site's column-level lineage/descriptions are more useful
+# built against a schema that's actually been run than a stub target would
+# give.
+#
+# One-time manual setup this workflow depends on (can't be done from a
+# workflow file): repo Settings -> Pages -> Source = "GitHub Actions".
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "warehouse/dbt/hindcast/**"
+      - ".github/workflows/dbt-docs.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: dbt-docs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      # See ci.yml: --no-build is omitted, pyspark/dvc[azure] need a source
+      # build on this resolver.
+      - run: uv sync --frozen
+
+      - name: dbt deps
+        working-directory: warehouse/dbt/hindcast
+        run: uv run --project "$GITHUB_WORKSPACE" dbt deps
+
+      - name: dbt build --target duckdb
+        working-directory: warehouse/dbt/hindcast
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        run: uv run --project "$GITHUB_WORKSPACE" dbt build --target duckdb
+
+      - name: dbt docs generate
+        working-directory: warehouse/dbt/hindcast
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        run: uv run --project "$GITHUB_WORKSPACE" dbt docs generate --target duckdb
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: warehouse/dbt/hindcast/target
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

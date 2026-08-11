@@ -15,7 +15,9 @@ from pyspark.sql import SparkSession
 
 
 def ui_base_url(spark: SparkSession) -> str:
-    port = spark.sparkContext.uiWebUrl.split(":")[-1]
+    ui_web_url = spark.sparkContext.uiWebUrl
+    assert ui_web_url is not None, "Spark UI is disabled -- benchmark needs it for stage metrics"
+    port = ui_web_url.split(":")[-1]
     return f"http://localhost:{port}/api/v1/applications/{spark.sparkContext.applicationId}"
 
 

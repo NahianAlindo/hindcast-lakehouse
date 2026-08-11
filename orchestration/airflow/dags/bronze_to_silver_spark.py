@@ -65,13 +65,9 @@ def _spark_task(task_id: str, script: str) -> DockerOperator:
 )
 def bronze_to_silver_spark():
     current = _spark_task("bronze_current_to_silver", "bronze_current_to_silver.py")
-    air_quality = _spark_task(
-        "bronze_air_quality_to_silver", "bronze_air_quality_to_silver.py"
-    )
+    air_quality = _spark_task("bronze_air_quality_to_silver", "bronze_air_quality_to_silver.py")
     forecast = _spark_task("bronze_forecast_to_silver", "bronze_forecast_to_silver.py")
-    milestones = _spark_task(
-        "silver_forecast_milestones", "silver_forecast_milestones.py"
-    )
+    milestones = _spark_task("silver_forecast_milestones", "silver_forecast_milestones.py")
 
     current >> air_quality >> forecast >> milestones
 

@@ -42,16 +42,10 @@ def _location_id_expr() -> Column:
     uniformly across the other 9,997 regular cities. A per-row weighted
     draw (not a nested loop) is what makes the skew exact and
     scale-independent."""
-    mega_pick = (F.abs(F.hash(F.col("row_id"), F.lit(SEED))) % N_MEGA_CITIES).cast(
-        "int"
-    )
-    regular_pick = F.abs(F.hash(F.col("row_id"), F.lit(SEED + 1))) % (
-        N_CITIES - N_MEGA_CITIES
-    )
+    mega_pick = (F.abs(F.hash(F.col("row_id"), F.lit(SEED))) % N_MEGA_CITIES).cast("int")
+    regular_pick = F.abs(F.hash(F.col("row_id"), F.lit(SEED + 1))) % (N_CITIES - N_MEGA_CITIES)
     is_mega = F.rand(SEED) < MEGA_CITY_SHARE
-    return F.when(
-        is_mega, F.concat(F.lit("mega_city_"), mega_pick.cast("string"))
-    ).otherwise(
+    return F.when(is_mega, F.concat(F.lit("mega_city_"), mega_pick.cast("string"))).otherwise(
         F.concat(
             F.lit("city_"),
             F.lpad((regular_pick + N_MEGA_CITIES).cast("string"), 5, "0"),
@@ -110,9 +104,7 @@ def generate(spark: SparkSession, total_rows: int) -> DataFrame:
         }
     )
 
-    return df.select(
-        "location_id", "issued_at", "valid_ts", "lead_time_minutes", "temp_c"
-    )
+    return df.select("location_id", "issued_at", "valid_ts", "lead_time_minutes", "temp_c")
 
 
 def main() -> None:

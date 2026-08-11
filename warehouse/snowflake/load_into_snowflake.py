@@ -22,7 +22,7 @@ hardcoded, never committed.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import snowflake.connector
 from azure.storage.blob import ContainerSasPermissions, generate_container_sas
@@ -61,7 +61,7 @@ TABLES: dict[str, str] = {
 
 def generate_sas() -> str:
     account_key = os.environ["AZURE_STORAGE_ACCOUNT_KEY"]
-    expiry = datetime.now(timezone.utc) + timedelta(hours=3)
+    expiry = datetime.now(UTC) + timedelta(hours=3)
     return generate_container_sas(
         account_name=STORAGE_ACCOUNT,
         container_name=EXPORT_CONTAINER,

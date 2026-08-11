@@ -4,18 +4,19 @@
 {% set milestones = var('milestone_hours') %}
 
 with milestones as (
-    select * from (values
+    select * from (
+        values
         {% for h in milestones %}
-        ({{ h }}){% if not loop.last %},{% endif %}
+            ({{ h }}){% if not loop.last %},{% endif %}
         {% endfor %}
-    ) as t(milestone_hours)
+    ) as t (milestone_hours)
 )
 
 select
     {{ dbt_utils.generate_surrogate_key(['milestone_hours']) }} as lead_time_bucket_key,
     milestone_hours,
     milestone_hours - 3 as min_hours,
-    milestone_hours     as max_hours,
+    milestone_hours as max_hours,
     case
         when milestone_hours <= 6 then 'nowcast'
         when milestone_hours <= 24 then 'short'

@@ -20,8 +20,8 @@ select
     cast(floor(hour / 3.0) * 3 as int) as three_hour_slot,
     case
         when hour between 21 and 23 or hour between 0 and 4 then 'night'
-        when hour between 5 and 6   then 'dawn'
-        when hour between 7 and 11  then 'morning'
+        when hour between 5 and 6 then 'dawn'
+        when hour between 7 and 11 then 'morning'
         when hour between 12 and 16 then 'afternoon'
         else 'evening'
     end as daypart

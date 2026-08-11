@@ -90,7 +90,7 @@ class AirPollutionResponse(BaseModel):
 
 def validate(endpoint: str, payload: dict) -> tuple[bool, str | None]:
     """Returns (is_valid, error_message). Never raises."""
-    model_by_endpoint = {
+    model_by_endpoint: dict[str, type[BaseModel]] = {
         "current": CurrentWeatherResponse,
         "forecast": ForecastResponse,
         "air_quality": AirPollutionResponse,

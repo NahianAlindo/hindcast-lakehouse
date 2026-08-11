@@ -21,15 +21,16 @@ import hashlib
 import json
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from client import get
 from config import load_locations
 from envelope import land_bronze
 from models import validate
-from observability import init_sentry, with_sentry_scope
 from state import read_last_forecast_hashes, write_last_forecast_hashes
+
+from observability import init_sentry, with_sentry_scope
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "observability"))
 from datadog_metrics import submit_count  # noqa: E402
@@ -51,7 +52,7 @@ def fetch_and_land(loc: dict, run_id: str) -> tuple[bool, bool]:
     for a state model that stays simple. Standalone/CLI use (main(), below)
     is single-threaded already and was never at risk.
     """
-    requested_at = datetime.now(timezone.utc)
+    requested_at = datetime.now(UTC)
     response = get(
         "/data/2.5/forecast",
         {"lat": loc["lat"], "lon": loc["lon"], "units": "metric"},
@@ -74,7 +75,10 @@ def fetch_and_land(loc: dict, run_id: str) -> tuple[bool, bool]:
 
     is_valid, validation_error = validate(ENDPOINT, payload)
     if not is_valid:
-        print(f"[{ENDPOINT}] {loc['location_id']} -> validation failed (landing anyway): {validation_error}")
+        print(
+            f"[{ENDPOINT}] {loc['location_id']} -> "
+            f"validation failed (landing anyway): {validation_error}"
+        )
 
     payload_hash = hashlib.sha256(json.dumps(payload).encode()).hexdigest()
     last_hashes = read_last_forecast_hashes()

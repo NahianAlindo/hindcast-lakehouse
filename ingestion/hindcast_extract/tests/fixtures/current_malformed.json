@@ -1,0 +1,7 @@
+{
+  "coord": {"lon": -78.85, "lat": 43.9},
+  "weather": [{"id": 800, "main": "Clear", "description": "clear sky", "icon": "01d"}],
+  "dt": 1723400000,
+  "name": "Oshawa",
+  "cod": 200
+}

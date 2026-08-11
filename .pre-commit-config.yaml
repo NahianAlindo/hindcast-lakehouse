@@ -1,0 +1,35 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        # docs/PLAN.md's own architecture text and comments describe real
+        # secret names/patterns (env var names, Key Vault secret names) --
+        # detect-secrets' entropy heuristics occasionally flag prose about
+        # secrets as if it were one. Baseline lets false positives be
+        # audited once (`detect-secrets scan > .secrets.baseline`) instead
+        # of re-litigated on every commit.
+        args: [--baseline, .secrets.baseline]
+
+  # terraform fmt/tflint/checkov run via terraform.yml's CI workflow, not
+  # pre-commit -- they need the actual provider plugins installed
+  # (`terraform init`), which pre-commit's isolated hook environments don't
+  # have without extra Terraform-specific pre-commit hooks this project
+  # hasn't added; running them in CI (already fast, already gated on PR)
+  # covers the same ground without a slower local commit hook.

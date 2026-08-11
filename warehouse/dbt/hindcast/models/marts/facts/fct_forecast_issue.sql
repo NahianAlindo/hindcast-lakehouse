@@ -15,16 +15,17 @@ with base as (
         l.location_key,
         l.iana_tz,
         {{ to_local_timestamp('f.valid_ts_utc', 'l.iana_tz') }} as valid_ts_local
-    from {{ ref('int_forecast_with_leadtime') }} f
-    left join {{ ref('dim_location') }} l on l.location_id = f.location_id
+    from {{ ref('int_forecast_with_leadtime') }} as f
+    left join {{ ref('dim_location') }} as l on f.location_id = l.location_id
 )
 
 select
-    {{ dbt_utils.generate_surrogate_key(['b.location_id', 'b.issued_at_utc', 'b.valid_ts_utc']) }} as forecast_issue_key,
+    {{ dbt_utils.generate_surrogate_key(['b.location_id', 'b.issued_at_utc', 'b.valid_ts_utc']) }}
+        as forecast_issue_key,
     b.location_key,
-    dd.date_key  as valid_date_key,
-    tu.time_key  as valid_time_utc_key,
-    tl.time_key  as valid_time_local_key,
+    dd.date_key as valid_date_key,
+    tu.time_key as valid_time_utc_key,
+    tl.time_key as valid_time_local_key,
     wc.weather_condition_key,
     pr.pipeline_run_key,
     b.location_id,
@@ -41,9 +42,9 @@ select
     b.pressure_hpa,
     b.humidity_pct,
     b.pop
-from base b
-left join {{ ref('dim_date') }} dd on dd.date_day = cast(b.valid_ts_utc as date)
-left join {{ ref('dim_time') }} tu on tu.hour = extract(hour from b.valid_ts_utc)
-left join {{ ref('dim_time') }} tl on tl.hour = extract(hour from b.valid_ts_local)
-left join {{ ref('dim_weather_condition') }} wc on wc.code = b.weather_code
-left join {{ ref('dim_pipeline_run') }} pr on pr.run_id = b.run_id
+from base as b
+left join {{ ref('dim_date') }} as dd on dd.date_day = cast(b.valid_ts_utc as date)
+left join {{ ref('dim_time') }} as tu on tu.hour = extract(hour from b.valid_ts_utc)
+left join {{ ref('dim_time') }} as tl on tl.hour = extract(hour from b.valid_ts_local)
+left join {{ ref('dim_weather_condition') }} as wc on b.weather_code = wc.code
+left join {{ ref('dim_pipeline_run') }} as pr on b.run_id = pr.run_id

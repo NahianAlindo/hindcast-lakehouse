@@ -21,20 +21,24 @@
 {% set tolerance_minutes = var('actual_match_tolerance_minutes') %}
 {% set status_closed = "'closed'" %}
 {% set status_closed_no_actual = "'closed_no_actual'" %}
+{% set now_expr = "current_timestamp" %}
+{% set valid_ts_expr = "j.valid_ts_utc" %}
 
 with pivoted as (
     select
         location_id,
         valid_ts_utc,
-        {% for h in milestones -%}
-        max(case when milestone_hours = {{ h }} then temp_c end)        as temp_fcst_{{ h }}h,
-        max(case when milestone_hours = {{ h }} then pop end)           as pop_fcst_{{ h }}h,
+    {% for h in milestones -%}
+        max(case when milestone_hours = {{ h }} then temp_c end) as temp_fcst_{{ h }}h,
+        max(case when milestone_hours = {{ h }} then pop end) as pop_fcst_{{ h }}h,
         max(case when milestone_hours = {{ h }} then wind_speed_ms end) as wind_speed_fcst_{{ h }}h,
-        max(case when milestone_hours = {{ h }} then wind_deg end)      as wind_deg_fcst_{{ h }}h,
-        max(case when milestone_hours = {{ h }} then weather_code end)  as weather_code_fcst_{{ h }}h,
+        max(case when milestone_hours = {{ h }} then wind_deg end) as wind_deg_fcst_{{ h }}h,
+        max(case when milestone_hours = {{ h }} then weather_code end) as weather_code_fcst_{{ h }}h,
         max(case when milestone_hours = {{ h }} then issued_at_utc end) as issued_at_{{ h }}h,
-        max(case when milestone_hours = {{ h }} then actual_lead_hours end) as actual_lead_hours_{{ h }}h{{ "," if not loop.last }}
-        {% endfor %}
+        max(case when milestone_hours = {{ h }} then actual_lead_hours end)
+            as actual_lead_hours_{{ h }}h
+        {{ "," if not loop.last }}
+    {% endfor %}
     from {{ ref('int_forecast_milestone_pivot') }}
     group by location_id, valid_ts_utc
 ),
@@ -43,9 +47,9 @@ lifecycle as (
     select
         location_id,
         valid_ts_utc,
-        min(issued_at_utc)          as first_forecast_at,
-        max(issued_at_utc)          as last_forecast_at,
-        count(*)                    as revision_count,
+        min(issued_at_utc) as first_forecast_at,
+        max(issued_at_utc) as last_forecast_at,
+        count(*) as revision_count,
         count(distinct issued_at_utc) as distinct_model_runs
     from {{ ref('int_forecast_with_leadtime') }}
     group by location_id, valid_ts_utc
@@ -57,7 +61,10 @@ lifecycle as (
 -- SQL rejects a correlated subquery there
 -- (UNSUPPORTED_CORRELATED_SCALAR_SUBQUERY) even though DuckDB accepts it.
 latest_run as (
-    select location_id, valid_ts_utc, run_id
+    select
+        location_id,
+        valid_ts_utc,
+        run_id
     from (
         select
             location_id,
@@ -67,7 +74,7 @@ latest_run as (
                 partition by location_id, valid_ts_utc order by issued_at_utc desc
             ) as rn
         from {{ ref('int_forecast_with_leadtime') }}
-    ) ranked
+    ) as ranked
     where rn = 1
 ),
 
@@ -81,18 +88,22 @@ actuals as (
         wind_speed_actual_ms,
         wind_deg_actual,
         weather_code_actual,
+        temp_actual_window_mean_c,
+        obs_count_in_window,
         case
             when weather_code_actual is null then null
             when weather_code_actual between 300 and 622 then true
             else false
-        end as pop_actual_binary,
-        temp_actual_window_mean_c,
-        obs_count_in_window
+        end as pop_actual_binary
     from {{ ref('int_observation_slot_matched') }}
 ),
 
 baseline as (
-    select location_id, valid_ts_utc, temp_persistence_c, pop_persistence
+    select
+        location_id,
+        valid_ts_utc,
+        temp_persistence_c,
+        pop_persistence
     from {{ ref('int_persistence_baseline') }}
 ),
 
@@ -114,10 +125,10 @@ joined as (
         a.obs_count_in_window,
         b.temp_persistence_c,
         b.pop_persistence
-    from pivoted p
-    left join lifecycle lc using (location_id, valid_ts_utc)
-    left join actuals a    using (location_id, valid_ts_utc)
-    left join baseline b   using (location_id, valid_ts_utc)
+    from pivoted as p
+    left join lifecycle as lc on p.location_id = lc.location_id and p.valid_ts_utc = lc.valid_ts_utc
+    left join actuals as a on p.location_id = a.location_id and p.valid_ts_utc = a.valid_ts_utc
+    left join baseline as b on p.location_id = b.location_id and p.valid_ts_utc = b.valid_ts_utc
 ),
 
 with_status as (
@@ -136,10 +147,10 @@ with_status as (
         -- slot_matched.sql already uses, not interval literals.
         case
             when j.actual_obs_ts is not null then {{ status_closed }}
-            when {{ datediff_minutes('current_timestamp', 'j.valid_ts_utc') }} > {{ tolerance_minutes }}
+            when {{ datediff_minutes(now_expr, valid_ts_expr) }} > {{ tolerance_minutes }}
                 then {{ status_closed_no_actual }}
             when j.valid_ts_utc <= current_timestamp then 'awaiting_actual'
-            when {{ datediff_minutes('j.valid_ts_utc', 'current_timestamp') }} <= 1440 then 'forecasting'
+            when {{ datediff_minutes(valid_ts_expr, now_expr) }} <= 1440 then 'forecasting'
             else 'pending'
         end as slot_status,
         -- dq_status priority: a missing actual past its window is the most
@@ -147,21 +158,24 @@ with_status as (
         -- sparse milestone coverage (only meaningful once the slot is old
         -- enough that every milestone <= its age should exist).
         case
-            when j.actual_obs_ts is null
-                 and {{ datediff_minutes('current_timestamp', 'j.valid_ts_utc') }} > {{ tolerance_minutes }}
+            when
+                j.actual_obs_ts is null
+                and {{ datediff_minutes(now_expr, valid_ts_expr) }} > {{ tolerance_minutes }}
                 then 'no_actual'
-            when j.match_offset_minutes is not null and abs(j.match_offset_minutes) > {{ (tolerance_minutes / 2) | int }}
+            when
+                j.match_offset_minutes is not null and abs(j.match_offset_minutes) > {{ (tolerance_minutes / 2) | int }}
                 then 'wide_match_offset'
-            when j.valid_ts_utc <= current_timestamp
-                 and ({{ milestones | length }} - (
+            when
+                j.valid_ts_utc <= current_timestamp
+                and ({{ milestones | length }} - (
                     {% for h in milestones -%}
-                    (case when j.temp_fcst_{{ h }}h is not null then 1 else 0 end){{ " + " if not loop.last }}
+                        (case when j.temp_fcst_{{ h }}h is not null then 1 else 0 end){{ " + " if not loop.last }}
                     {% endfor -%}
-                 )) > 4
+                )) > 4
                 then 'sparse_forecasts'
             else 'ok'
         end as dq_status
-    from joined j
+    from joined as j
 )
 
 select
@@ -177,17 +191,18 @@ select
     ws.valid_ts_utc,
 
     {% for h in milestones -%}
-    ws.temp_fcst_{{ h }}h,
-    ws.pop_fcst_{{ h }}h,
-    ws.wind_speed_fcst_{{ h }}h,
-    wc_{{ h }}.weather_condition_key as condition_key_fcst_{{ h }}h,
-    ws.issued_at_{{ h }}h,
-    ws.actual_lead_hours_{{ h }}h,
+        ws.temp_fcst_{{ h }}h,
+        ws.pop_fcst_{{ h }}h,
+        ws.wind_speed_fcst_{{ h }}h,
+        wc_{{ h }}.weather_condition_key as condition_key_fcst_{{ h }}h,
+        ws.issued_at_{{ h }}h,
+        ws.actual_lead_hours_{{ h }}h,
     {% endfor %}
 
     ws.temp_actual_c,
     ws.pop_actual_binary,
-    cast(null as double) as precip_actual_mm, -- not collected by /weather (no direct precip-amount field); left null, not fabricated
+    -- not collected by /weather (no direct precip-amount field); left null, not fabricated
+    cast(null as double) as precip_actual_mm,
     ws.wind_speed_actual_ms,
     ws.wind_deg_actual,
     wc_actual.weather_condition_key as condition_key_actual,
@@ -206,34 +221,39 @@ select
     ws.revision_count,
     ws.distinct_model_runs,
     ws.slot_status,
-    case when ws.slot_status in ({{ status_closed }}, {{ status_closed_no_actual }}) then ws.last_forecast_at end as slot_closed_at,
+    case when ws.slot_status in ({{ status_closed }}, {{ status_closed_no_actual }}) then ws.last_forecast_at end
+        as slot_closed_at,
     ws.dq_status,
 
-    {% for h in milestones -%}
+{% for h in milestones -%}
     abs(ws.temp_fcst_{{ h }}h - ws.temp_actual_c) as abs_err_temp_{{ h }}h,
-    (ws.temp_fcst_{{ h }}h - ws.temp_actual_c)     as signed_err_temp_{{ h }}h,
+    (ws.temp_fcst_{{ h }}h - ws.temp_actual_c) as signed_err_temp_{{ h }}h,
     power(ws.temp_fcst_{{ h }}h - ws.temp_actual_c, 2) as sq_err_temp_{{ h }}h,
     power(ws.pop_fcst_{{ h }}h - (case when ws.pop_actual_binary then 1.0 else 0.0 end), 2) as brier_{{ h }}h,
     least(
         abs(ws.wind_deg_fcst_{{ h }}h - ws.wind_deg_actual),
         360 - abs(ws.wind_deg_fcst_{{ h }}h - ws.wind_deg_actual)
-    ) as wind_dir_circ_err_{{ h }}h{{ "," if not loop.last }}
-    {% endfor %}
+    ) as wind_dir_circ_err_{{ h }}h
+    {{ "," if not loop.last }}
+{% endfor %}
 
-from with_status ws
-left join {{ ref('dim_location') }} l on l.location_id = ws.location_id
-left join {{ ref('dim_location_regime') }} lr
-       on lr.location_id = ws.location_id
-      and ws.first_forecast_at >= lr.valid_from
-      and (lr.valid_to is null or ws.first_forecast_at < lr.valid_to)
-left join {{ ref('dim_date') }} dd on dd.date_day = cast(ws.valid_ts_utc as date)
-left join {{ ref('dim_time') }} tu on tu.hour = extract(hour from ws.valid_ts_utc)
-left join {{ ref('dim_time') }} tl on tl.hour = extract(hour from ({{ to_local_timestamp('ws.valid_ts_utc', 'l.iana_tz') }}))
-left join latest_run lru on lru.location_id = ws.location_id and lru.valid_ts_utc = ws.valid_ts_utc
-left join {{ ref('dim_pipeline_run') }} pr on pr.run_id = lru.run_id
-left join {{ ref('dim_weather_condition') }} wc_actual on wc_actual.code = ws.weather_code_actual
+from with_status as ws
+left join {{ ref('dim_location') }} as l on ws.location_id = l.location_id
+left join {{ ref('dim_location_regime') }} as lr
+    on
+        ws.location_id = lr.location_id
+        and ws.first_forecast_at >= lr.valid_from
+        and (lr.valid_to is null or ws.first_forecast_at < lr.valid_to)
+left join {{ ref('dim_date') }} as dd on dd.date_day = cast(ws.valid_ts_utc as date)
+left join {{ ref('dim_time') }} as tu on tu.hour = extract(hour from ws.valid_ts_utc)
+left join
+    {{ ref('dim_time') }} as tl
+    on tl.hour = extract(hour from ({{ to_local_timestamp('ws.valid_ts_utc', 'l.iana_tz') }}))
+left join latest_run as lru on ws.location_id = lru.location_id and ws.valid_ts_utc = lru.valid_ts_utc
+left join {{ ref('dim_pipeline_run') }} as pr on lru.run_id = pr.run_id
+left join {{ ref('dim_weather_condition') }} as wc_actual on ws.weather_code_actual = wc_actual.code
 {% for h in milestones -%}
-left join {{ ref('dim_weather_condition') }} wc_{{ h }} on wc_{{ h }}.code = ws.weather_code_fcst_{{ h }}h
+    left join {{ ref('dim_weather_condition') }} as wc_{{ h }} on ws.weather_code_fcst_{{ h }}h = wc_{{ h }}.code
 {% endfor %}
 
 {% if is_incremental() %}

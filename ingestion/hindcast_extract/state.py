@@ -8,7 +8,6 @@ ephemeral runners or the persistent VM.
 import json
 
 from azure.storage.blob import BlobServiceClient
-
 from config import AZURE_STORAGE_CONNECTION_STRING, BLOB_CONTAINER_BRONZE
 
 _STATE_BLOB_PATH = "_state/forecast_last_hash.json"
@@ -36,6 +35,4 @@ def read_last_forecast_hashes() -> dict[str, str]:
 
 def write_last_forecast_hashes(hashes: dict[str, str]) -> None:
     container = _client().get_container_client(BLOB_CONTAINER_BRONZE)
-    container.upload_blob(
-        name=_STATE_BLOB_PATH, data=json.dumps(hashes), overwrite=True
-    )
+    container.upload_blob(name=_STATE_BLOB_PATH, data=json.dumps(hashes), overwrite=True)

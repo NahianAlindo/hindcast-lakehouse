@@ -7,11 +7,11 @@ select
     location_id,
     name,
     country,
-    lat::double        as lat,
-    lon::double        as lon,
+    lat::double as lat,
+    lon::double as lon,
     iana_tz,
     personal_relevance,
     personal_note,
     climate_class,
-    active_from::date  as active_from
+    active_from::date as active_from
 from {{ ref('locations') }}

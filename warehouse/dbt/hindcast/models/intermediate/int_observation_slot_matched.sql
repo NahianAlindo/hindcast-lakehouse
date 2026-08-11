@@ -9,7 +9,9 @@
 {% set tolerance_interval = "interval '" ~ tolerance ~ " minutes'" %}
 
 with slots as (
-    select distinct location_id, valid_ts_utc
+    select distinct
+        location_id,
+        valid_ts_utc
     from {{ ref('int_forecast_with_leadtime') }}
 ),
 
@@ -17,21 +19,23 @@ matched as (
     select
         s.location_id,
         s.valid_ts_utc,
-        o.obs_ts_utc                                            as actual_obs_ts,
+        o.obs_ts_utc as actual_obs_ts,
         {{ datediff_minutes('o.obs_ts_utc', 's.valid_ts_utc') }} as match_offset_minutes,
-        o.temp_c                                                as temp_actual_c,
-        o.wind_speed_ms                                         as wind_speed_actual_ms,
-        o.wind_deg                                              as wind_deg_actual,
-        o.weather_code                                          as weather_code_actual
-    from slots s
-    left join {{ ref('stg_owm__current') }} o
-           on o.location_id = s.location_id
-          and o.obs_ts_utc between s.valid_ts_utc - {{ tolerance_interval }}
-                                and s.valid_ts_utc + {{ tolerance_interval }}
+        o.temp_c as temp_actual_c,
+        o.wind_speed_ms as wind_speed_actual_ms,
+        o.wind_deg as wind_deg_actual,
+        o.weather_code as weather_code_actual
+    from slots as s
+    left join {{ ref('stg_owm__current') }} as o
+        on
+            s.location_id = o.location_id
+            and o.obs_ts_utc between s.valid_ts_utc - {{ tolerance_interval }}
+            and s.valid_ts_utc + {{ tolerance_interval }}
     qualify row_number() over (
         partition by s.location_id, s.valid_ts_utc
-        order by abs({{ datediff_seconds('o.obs_ts_utc', 's.valid_ts_utc') }}) asc,
-                 o.obs_ts_utc asc
+        order by
+            abs({{ datediff_seconds('o.obs_ts_utc', 's.valid_ts_utc') }}) asc,
+            o.obs_ts_utc asc
     ) = 1
 ),
 
@@ -45,13 +49,14 @@ windowed as (
     select
         s.location_id,
         s.valid_ts_utc,
-        avg(o.temp_c)  as temp_actual_window_mean_c,
+        avg(o.temp_c) as temp_actual_window_mean_c,
         count(o.obs_ts_utc) as obs_count_in_window
-    from slots s
-    left join {{ ref('stg_owm__current') }} o
-           on o.location_id = s.location_id
-          and o.obs_ts_utc between s.valid_ts_utc - {{ tolerance_interval }}
-                                and s.valid_ts_utc + {{ tolerance_interval }}
+    from slots as s
+    left join {{ ref('stg_owm__current') }} as o
+        on
+            s.location_id = o.location_id
+            and o.obs_ts_utc between s.valid_ts_utc - {{ tolerance_interval }}
+            and s.valid_ts_utc + {{ tolerance_interval }}
     group by s.location_id, s.valid_ts_utc
 )
 
@@ -59,7 +64,8 @@ select
     m.*,
     w.temp_actual_window_mean_c,
     w.obs_count_in_window
-from matched m
-left join windowed w
-       on w.location_id = m.location_id
-      and w.valid_ts_utc = m.valid_ts_utc
+from matched as m
+left join windowed as w
+    on
+        m.location_id = w.location_id
+        and m.valid_ts_utc = w.valid_ts_utc

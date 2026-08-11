@@ -8,28 +8,28 @@ pointless once it's done.
 
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from client import get
 from config import load_locations
 from envelope import land_bronze
 
 ENDPOINT = "air_quality_history"
-BACKFILL_START = datetime(2020, 11, 27, tzinfo=timezone.utc)
+BACKFILL_START = datetime(2020, 11, 27, tzinfo=UTC)
 CHUNK_DAYS = 30
 
 
 def main() -> None:
     run_id = uuid.uuid4().hex[:12]
     locations = load_locations()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     total_calls = 0
 
     for loc in locations:
         chunk_start = BACKFILL_START
         while chunk_start < now:
             chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS), now)
-            requested_at = datetime.now(timezone.utc)
+            requested_at = datetime.now(UTC)
             response = get(
                 "/data/2.5/air_pollution/history",
                 {
@@ -53,14 +53,13 @@ def main() -> None:
                 run_id=run_id,
             )
 
+            date_range = f"{chunk_start.date()}..{chunk_end.date()}"
             if response.status_code == 200:
                 n = len(payload.get("list", []))
-                print(
-                    f"[{ENDPOINT}] {loc['location_id']} {chunk_start.date()}..{chunk_end.date()} -> {n} hourly records"
-                )
+                print(f"[{ENDPOINT}] {loc['location_id']} {date_range} -> {n} hourly records")
             else:
                 print(
-                    f"[{ENDPOINT}] {loc['location_id']} {chunk_start.date()}..{chunk_end.date()} -> HTTP {response.status_code}"
+                    f"[{ENDPOINT}] {loc['location_id']} {date_range} -> HTTP {response.status_code}"
                 )
 
             chunk_start = chunk_end

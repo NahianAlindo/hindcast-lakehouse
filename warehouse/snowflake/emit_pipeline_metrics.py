@@ -23,7 +23,6 @@ from __future__ import annotations
 import os
 
 import snowflake.connector
-
 from datadog_metrics import submit_gauge
 
 

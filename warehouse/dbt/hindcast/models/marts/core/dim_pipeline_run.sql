@@ -13,11 +13,20 @@
 -- (`pipeline_run_key`) today, without fabricating values, and get
 -- backfilled once that instrumentation exists (tracked for Phase 7).
 with runs as (
-    select run_id, requested_at_utc as event_ts from {{ ref('stg_owm__current') }}
+    select
+        run_id,
+        requested_at_utc as event_ts
+    from {{ ref('stg_owm__current') }}
     union all
-    select run_id, requested_at_utc as event_ts from {{ ref('stg_owm__air_quality') }}
+    select
+        run_id,
+        requested_at_utc as event_ts
+    from {{ ref('stg_owm__air_quality') }}
     union all
-    select run_id, issued_at_utc as event_ts from {{ ref('stg_owm__forecast') }}
+    select
+        run_id,
+        issued_at_utc as event_ts
+    from {{ ref('stg_owm__forecast') }}
 ),
 
 agg as (
@@ -25,7 +34,7 @@ agg as (
         run_id,
         min(event_ts) as started_at,
         max(event_ts) as ended_at,
-        count(*)      as rows_written
+        count(*) as rows_written
     from runs
     group by run_id
 )

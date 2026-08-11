@@ -1,0 +1,106 @@
+name: ci
+
+# Phase 8 (docs/PLAN.md): lint/type/test the Python side, lint the dbt SQL,
+# and build the full star schema against real silver data on every push/PR
+# -- catching exactly the kind of regression this branch's own lint
+# clean-up caught live (sqlfluff's autofixer silently dropping a VALUES
+# column alias in 4 models, only surfaced by `dbt build` actually failing).
+#
+# dbt build's target here is duckdb, not a committed sample: this project's
+# `hindcast` dbt profile already reads real silver Delta tables straight off
+# ADLS via duckdb's azure+delta extensions (see profiles.yml) -- that's
+# simpler and more representative than maintaining a second synthetic
+# fixture set in parallel with real accruing data, so CI reuses the same
+# read-only connection string secret accrual-fallback.yml already has,
+# rather than the "committed sample" the plan originally sketched.
+
+on:
+  push:
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      # --no-build is deliberately omitted: pyspark and dvc[azure]'s
+      # transitive hydra-core -> antlr4-python3-runtime both need a source
+      # build on this resolver, unlike accrual-fallback.yml's narrower
+      # extractor-only dependency slice (verified live -- --no-build here
+      # fails with "marked as --no-build but has no binary distribution").
+      - run: uv sync --frozen --group dev
+
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
+
+      - name: dbt deps (packages needed for sqlfluff's dbt templater)
+        working-directory: warehouse/dbt/hindcast
+        # --project (not --directory): resolves the venv from the repo-root
+        # pyproject.toml without changing dbt's cwd away from this job
+        # step's working-directory, which is how dbt finds dbt_project.yml.
+        run: uv run --project "$GITHUB_WORKSPACE" dbt deps
+
+      - run: uv run sqlfluff lint warehouse/dbt/hindcast/models warehouse/dbt/hindcast/tests
+
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the Pandera/PySpark tests need a JVM -- the extractor's tests
+      # (respx-mocked httpx, no Spark) don't, but one Java setup for the
+      # whole job is simpler than splitting into two jobs for a ~10s cost.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      # --no-build is deliberately omitted: pyspark and dvc[azure]'s
+      # transitive hydra-core -> antlr4-python3-runtime both need a source
+      # build on this resolver, unlike accrual-fallback.yml's narrower
+      # extractor-only dependency slice (verified live -- --no-build here
+      # fails with "marked as --no-build but has no binary distribution").
+      - run: uv sync --frozen --group dev
+
+      - run: uv run pytest ingestion/hindcast_extract/tests/ -v
+      - run: uv run pytest transform/spark/jobs/tests/ -v
+
+  dbt-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: dbt deps
+        working-directory: warehouse/dbt/hindcast
+        run: uv run --project "$GITHUB_WORKSPACE" dbt deps
+
+      - name: dbt build --target duckdb
+        working-directory: warehouse/dbt/hindcast
+        env:
+          # Read-only: duckdb's azure+delta extensions read real silver
+          # Delta tables straight off ADLS (profiles.yml) -- same
+          # storage-account connection string accrual-fallback.yml already
+          # uses to write bronze, scoped here to reads only.
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        run: uv run --project "$GITHUB_WORKSPACE" dbt build --target duckdb

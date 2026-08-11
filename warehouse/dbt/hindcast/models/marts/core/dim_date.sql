@@ -15,7 +15,7 @@ with days as (
 -- of 4-6 times across a CASE or VALUES block.
 season_names as (
     select * from (values (0, 'Winter'), (1, 'Spring'), (2, 'Summer'), (3, 'Fall'))
-        as t(season_index, season_name)
+        as t (season_index, season_name)
 ),
 
 {% set date_col = 'indexed.date_day' %}
@@ -37,17 +37,17 @@ indexed as (
 select
     {{ dbt_utils.generate_surrogate_key([date_col]) }} as date_key,
     indexed.date_day,
-    extract(year from indexed.date_day)    as year,
-    extract(month from indexed.date_day)   as month,
-    extract(day from indexed.date_day)     as day_of_month,
-    extract(doy from indexed.date_day)     as day_of_year,
-    extract(week from indexed.date_day)    as iso_week,
-    extract(dow from indexed.date_day)     as day_of_week,   -- 0=Sunday
-    {{ day_name(date_col) }}     as day_name,
-    {{ month_name(date_col) }}   as month_name,
+    extract(year from indexed.date_day) as year,
+    extract(month from indexed.date_day) as month,
+    extract(day from indexed.date_day) as day_of_month,
+    extract(doy from indexed.date_day) as day_of_year,
+    extract(week from indexed.date_day) as iso_week,
+    extract(dow from indexed.date_day) as day_of_week,   -- 0=Sunday
+    {{ day_name(date_col) }} as day_name,
+    {{ month_name(date_col) }} as month_name,
     extract(dow from indexed.date_day) in (0, 6) as is_weekend,
     sn_north.season_name as season_northern,
     sn_south.season_name as season_southern
 from indexed
-left join season_names sn_north on sn_north.season_index = indexed.season_index_n
-left join season_names sn_south on sn_south.season_index = (indexed.season_index_n + 2) % 4
+left join season_names as sn_north on indexed.season_index_n = sn_north.season_index
+left join season_names as sn_south on sn_south.season_index = (indexed.season_index_n + 2) % 4

@@ -13,10 +13,9 @@ bronze row failed `less_than(360)`), so 360 and 0 are both valid encodings
 of the same direction.
 """
 
-from pyspark.sql import DataFrame, types as T
-
-import pandera.pyspark as pa
 from pandera.pyspark import DataFrameModel, Field
+from pyspark.sql import DataFrame
+from pyspark.sql import types as T
 
 
 class ObsWeatherSchema(DataFrameModel):
@@ -46,7 +45,11 @@ class ForecastSchema(DataFrameModel):
 
 def check(df: DataFrame, schema: type[DataFrameModel], job_name: str) -> None:
     """Raises ValueError with the pandera error detail if validation fails."""
-    result = schema.validate(df)
-    errors = result.pandera.errors
+    # pandera.pyspark's stubs type .validate()/.pandera against its own
+    # typing.pyspark.DataFrame wrapper, not a plain pyspark DataFrame -- a
+    # stub-only mismatch (runtime accepts and returns plain DataFrames,
+    # verified live in Phase 4), not a real type error.
+    result = schema.validate(df)  # type: ignore[arg-type]
+    errors = result.pandera.errors  # type: ignore[attr-defined]
     if errors:
         raise ValueError(f"[{job_name}] Pandera validation failed: {dict(errors)}")

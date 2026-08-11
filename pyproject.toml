@@ -20,3 +20,43 @@ dependencies = [
     "dvc[azure]>=3.55",
     "sentry-sdk==2.67.1",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14",
+    "mypy>=1.14",
+    "pytest>=8.3",
+    "respx>=0.22",
+    "sqlfluff>=3.3",
+    "sqlfluff-templater-dbt>=3.3",
+    "pre-commit>=4.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+# Ingestion/transform scripts use bare `from client import get`-style
+# imports resolved via PYTHONPATH at runtime (docker/*/Dockerfile), not
+# package-relative ones -- mypy needs to be told each job directory is its
+# own root, or every cross-module import looks unresolved.
+explicit_package_bases = true
+mypy_path = "ingestion/hindcast_extract:transform/spark/jobs"
+# dbt_packages is vendored (gitignored, `dbt deps`-installed) third-party
+# code -- ruff skips it automatically via .gitignore, but mypy doesn't.
+# tests/ dirs: excluded from mypy specifically (not from ruff/pytest) --
+# two separate un-packaged `tests/` directories (no __init__.py, matching
+# pytest's own rootdir convention) both resolve to the same module name
+# "tests.conftest" under explicit_package_bases, which mypy rejects as a
+# duplicate module rather than two independent local test suites.
+exclude = ["dbt_packages/", "/tests/"]
+
+[tool.pytest.ini_options]
+testpaths = ["ingestion/hindcast_extract/tests", "transform/spark/jobs/tests"]
+pythonpath = ["ingestion/hindcast_extract", "transform/spark/jobs"]

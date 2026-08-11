@@ -19,11 +19,10 @@ import json
 import time
 from pathlib import Path
 
+from metrics import timed_run
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-
-from metrics import timed_run
 
 MILESTONE_HOURS = [3, 6, 12, 24, 48, 72, 96, 120]
 N_SALT_BUCKETS = 12  # > local[*] core count, so salted skew actually spreads
@@ -37,9 +36,7 @@ def build_dim_location(spark: SparkSession):
     own (which is exactly why the broadcast-vs-sort-merge comparison has to
     force the join strategy explicitly rather than rely on the default)."""
     mega = spark.range(3).select(
-        F.concat(F.lit("mega_city_"), F.col("id").cast("string")).alias(
-            "location_id"
-        )
+        F.concat(F.lit("mega_city_"), F.col("id").cast("string")).alias("location_id")
     )
     regular = spark.range(9997).select(
         F.concat(F.lit("city_"), F.lpad((F.col("id") + 3).cast("string"), 5, "0")).alias(
@@ -53,9 +50,7 @@ def build_dim_location(spark: SparkSession):
 
 
 def run_milestones(spark, source, dim, *, join_strategy: str, salted: bool):
-    milestones = spark.createDataFrame(
-        [(float(h),) for h in MILESTONE_HOURS], ["milestone_hours"]
-    )
+    milestones = spark.createDataFrame([(float(h),) for h in MILESTONE_HOURS], ["milestone_hours"])
 
     candidates = (
         source.withColumn("lead_time_hours", F.col("lead_time_minutes") / 60)
@@ -66,9 +61,9 @@ def run_milestones(spark, source, dim, *, join_strategy: str, salted: bool):
         )
     )
 
-    window = Window.partitionBy(
-        "location_id", "valid_ts", "milestone_hours"
-    ).orderBy(F.col("distance_hours").asc())
+    window = Window.partitionBy("location_id", "valid_ts", "milestone_hours").orderBy(
+        F.col("distance_hours").asc()
+    )
 
     selected = (
         candidates.withColumn("_rn", F.row_number().over(window))
@@ -85,21 +80,19 @@ def run_milestones(spark, source, dim, *, join_strategy: str, salted: bool):
         # Force a real sort-merge shuffle join by disabling auto-broadcast
         # for this query (set globally by the CLI before calling this).
         if salted:
-            salt = (F.abs(F.hash("location_id", F.lit("salt"))) % N_SALT_BUCKETS).cast(
-                "int"
-            )
+            salt = (F.abs(F.hash("location_id", F.lit("salt"))) % N_SALT_BUCKETS).cast("int")
             left = selected.withColumn("_salt", salt).withColumn(
                 "_join_key", F.concat_ws("_", "location_id", "_salt")
             )
             # Explode the dim side across every salt bucket so each salted
             # left-side key still finds its match -- the standard salted
             # skew-join pattern.
-            buckets = spark.range(N_SALT_BUCKETS).select(
-                F.col("id").cast("int").alias("_salt")
+            buckets = spark.range(N_SALT_BUCKETS).select(F.col("id").cast("int").alias("_salt"))
+            right = (
+                dim.crossJoin(buckets)
+                .withColumn("_join_key", F.concat_ws("_", "location_id", "_salt"))
+                .drop("location_id", "_salt")
             )
-            right = dim.crossJoin(buckets).withColumn(
-                "_join_key", F.concat_ws("_", "location_id", "_salt")
-            ).drop("location_id", "_salt")
             joined = left.join(right, "_join_key", "left").drop("_join_key", "_salt")
         else:
             joined = selected.join(dim, "location_id", "left")
@@ -114,11 +107,18 @@ def main() -> None:
     parser.add_argument("--aqe", choices=["on", "off"], default="on")
     parser.add_argument("--join-strategy", choices=["broadcast", "sort_merge"], default="broadcast")
     parser.add_argument("--salted", action="store_true")
-    parser.add_argument("--partitioned", action="store_true", help="label only -- reflects whether --source points at a partitionBy(issue_date) layout")
+    parser.add_argument(
+        "--partitioned",
+        action="store_true",
+        help="label only -- reflects whether --source points at a partitionBy(issue_date) layout",
+    )
     parser.add_argument(
         "--skip-join",
         action="store_true",
-        help="omit the dim_location join entirely -- used for the scale sweep so the query exactly matches run_duckdb_benchmark.py's (join-free) query",
+        help=(
+            "omit the dim_location join entirely -- used for the scale sweep so the query "
+            "exactly matches run_duckdb_benchmark.py's (join-free) query"
+        ),
     )
     parser.add_argument("--label", default="")
     parser.add_argument("--results", required=True)

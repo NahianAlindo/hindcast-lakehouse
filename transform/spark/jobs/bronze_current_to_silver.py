@@ -67,9 +67,9 @@ def main() -> None:
     # job is a full overwrite every run -- the table's schema *is* this
     # file's SELECT statement, so a mismatch only ever means the code
     # changed, which is exactly when the schema should follow.
-    deduped.write.format("delta").mode("overwrite").option(
-        "overwriteSchema", "true"
-    ).save(silver_path(TABLE))
+    deduped.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(
+        silver_path(TABLE)
+    )
     print(f"[{ENDPOINT}] wrote {deduped.count()} rows to {TABLE}")
     spark.stop()
 
